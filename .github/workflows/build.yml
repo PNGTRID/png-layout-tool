@@ -5,12 +5,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             platform: win
           - os: macos-latest
             platform: mac
@@ -24,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
