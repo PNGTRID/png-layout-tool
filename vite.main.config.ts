@@ -9,7 +9,7 @@ export default defineConfig({
     lib: {
       entry: path.resolve(__dirname, "electron/main.ts"),
       formats: ["cjs"],
-      fileName: () => "main.js",
+      fileName: () => "main.cjs",
     },
     outDir: path.resolve(__dirname, "dist/main"),
     emptyOutDir: true,

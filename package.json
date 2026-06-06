@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "PNG 透明图片自动排版工具",
   "type": "module",
-  "main": "dist/main/main.js",
+  "main": "dist/main/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
@@ -48,7 +48,7 @@
       "output": "dist"
     },
     "extraMetadata": {
-      "main": "dist/main/main.js"
+      "main": "dist/main/main.cjs"
     },
     "win": {
       "target": "portable",

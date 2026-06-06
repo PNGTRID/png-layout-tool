@@ -35,7 +35,7 @@ function createWindow(): void {
     title: "PNG \u900f\u660e\u56fe\u7247\u81ea\u52a8\u6392\u7248\u5de5\u5177",
     titleBarStyle: "hiddenInset",
     webPreferences: {
-      preload: path.join(__dirname, "../preload/preload.js"),
+      preload: path.join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
