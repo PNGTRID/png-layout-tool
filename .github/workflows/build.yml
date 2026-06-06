@@ -1,9 +1,8 @@
-name: Build & Release
+name: Build
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -36,11 +35,15 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.platform == 'win'
-        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
 
       - name: Package (macOS)
         if: matrix.platform == 'mac'
-        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -50,6 +53,4 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-          if-no-files-found: ignore
+          if-no-files-found: warn
