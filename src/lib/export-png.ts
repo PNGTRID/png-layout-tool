@@ -1,4 +1,5 @@
 import { LayoutResult, UploadedImage } from '../shared/types';
+import { platformAPI } from '../shared/ipc';
 
 const imageCache = new Map<string, HTMLImageElement>();
 
@@ -71,8 +72,8 @@ export async function exportPNG(canvas: HTMLCanvasElement, filePath: string): Pr
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = new Uint8Array(arrayBuffer);
 
-  if (window.electronAPI) {
-    await window.electronAPI.writeFile(filePath, buffer);
+  if (filePath !== 'layout.png') {
+    await platformAPI.writeFile(filePath, buffer);
   } else {
     // Browser fallback: trigger download
     const url = URL.createObjectURL(blob);

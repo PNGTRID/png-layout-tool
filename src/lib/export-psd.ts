@@ -1,4 +1,5 @@
 import { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
+import { platformAPI } from '../shared/ipc';
 
 const imageCache = new Map<string, HTMLImageElement>();
 
@@ -377,8 +378,8 @@ export async function exportPSD(
 
   const psdData = writeCmykPsd(layers, layout.canvasWidth, layout.canvasHeight);
 
-  if (window.electronAPI) {
-    await window.electronAPI.writeFile(filePath, psdData);
+  if (filePath !== 'layout.psd') {
+    await platformAPI.writeFile(filePath, psdData);
   } else {
     const blob = new Blob([psdData.buffer as ArrayBuffer], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);

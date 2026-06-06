@@ -1,22 +1,27 @@
-export interface ElectronAPI {
-  showSaveDialog(options: SaveDialogOptions): Promise<string | null>;
-  writeFile(filePath: string, buffer: Uint8Array): Promise<void>;
-  readFile(filePath: string): Promise<Uint8Array>;
-}
-
 export interface SaveDialogOptions {
   filters: { name: string; extensions: string[] }[];
   defaultPath?: string;
 }
 
-export const IPC_CHANNELS = {
-  SHOW_SAVE_DIALOG: 'show-save-dialog',
-  WRITE_FILE: 'write-file',
-  READ_FILE: 'read-file',
-} as const;
+// Detect if running inside Tauri
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-declare global {
-  interface Window {
-    electronAPI?: ElectronAPI;
-  }
-}
+export const platformAPI = {
+  async showSaveDialog(options: SaveDialogOptions): Promise<string | null> {
+    if (isTauri) {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      return await save({
+        filters: options.filters,
+        defaultPath: options.defaultPath,
+      });
+    }
+    return null;
+  },
+
+  async writeFile(filePath: string, data: Uint8Array): Promise<void> {
+    if (isTauri) {
+      const { writeFile } = await import('@tauri-apps/plugin-fs');
+      await writeFile(filePath, data);
+    }
+  },
+};

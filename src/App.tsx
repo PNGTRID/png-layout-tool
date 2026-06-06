@@ -10,7 +10,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { UploadArea } from './components/UploadArea';
 import { ImageList } from './components/ImageList';
 import { LayoutCanvas } from './components/LayoutCanvas';
-
+import { platformAPI } from './shared/ipc';
 type SidebarTab = 'settings' | 'images';
 
 function App() {
@@ -31,15 +31,11 @@ function App() {
       await renderToCanvas(canvas, layout, images, params.backgroundColor);
 
       let filePath: string;
-      if (window.electronAPI) {
-        const result = await window.electronAPI.showSaveDialog({
-          defaultPath: 'layout.png',
-          filters: [{ name: 'PNG 图片', extensions: ['png'] }],
-        });
-        if (!result) {
-          setIsExporting(false);
-          return;
-        }
+      const result = await platformAPI.showSaveDialog({
+        defaultPath: 'layout.png',
+        filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+      });
+      if (result) {
         filePath = result;
       } else {
         filePath = 'layout.png';
@@ -58,15 +54,11 @@ function App() {
     setIsExporting(true);
     try {
       let filePath: string;
-      if (window.electronAPI) {
-        const result = await window.electronAPI.showSaveDialog({
-          defaultPath: 'layout.psd',
-          filters: [{ name: 'Photoshop 文件', extensions: ['psd'] }],
-        });
-        if (!result) {
-          setIsExporting(false);
-          return;
-        }
+      const result = await platformAPI.showSaveDialog({
+        defaultPath: 'layout.psd',
+        filters: [{ name: 'Photoshop 文件', extensions: ['psd'] }],
+      });
+      if (result) {
         filePath = result;
       } else {
         filePath = 'layout.psd';

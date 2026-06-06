@@ -9,6 +9,19 @@ release/
 *.tsbuildinfo
 
 # Generated JS/d.ts (from tsc)
+src/**/*.js
+src/**/*.d.ts
+
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+
+# Tauri
+src-tauri/target/
+
+# Generated JS/d.ts (from tsc)
 electron/*.js
 electron/*.d.ts
 src/**/*.js

@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// https://tauri.app/start/frontend/vite/
+const host = process.env.TAURI_DEV_HOST;
+
 export default defineConfig({
   plugins: [react()],
   base: "./",
@@ -22,6 +25,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: host || false,
+    hmr: host ? { protocol: "ws", host, port: 5174 } : undefined,
+    watch: { ignored: ["**/src-tauri/**"] },
   },
   build: {
     outDir: path.resolve(__dirname, "dist/renderer"),
@@ -31,7 +37,5 @@ export default defineConfig({
       input: path.resolve(__dirname, "index.html"),
     },
   },
-  optimizeDeps: {
-    exclude: ["electron"],
-  },
+  envPrefix: ["VITE_", "TAURI_"],
 });
