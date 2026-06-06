@@ -51,8 +51,12 @@
       "main": "dist/main/main.cjs"
     },
     "win": {
-      "target": "portable",
+      "target": ["nsis"],
       "icon": null
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false
     },
     "forceCodeSigning": false
   }
