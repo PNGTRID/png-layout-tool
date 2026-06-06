@@ -15,8 +15,10 @@ jobs:
         include:
           - platform: windows-2025
             args: ''
+            rust-targets: ''
           - platform: macos-latest
-            args: '--target universal-apple-darwin'
+            args: ''
+            rust-targets: ''
 
     runs-on: ${{ matrix.platform }}
 
@@ -32,12 +34,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
 
       - name: Install frontend dependencies
         run: npm ci
@@ -59,5 +55,4 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.dmg
             src-tauri/target/release/bundle/**/*.app
-            src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
           if-no-files-found: warn
