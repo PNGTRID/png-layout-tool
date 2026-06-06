@@ -253,7 +253,9 @@ function writeCmykPsd(layers: CmykLayer[], canvasW: number, canvasH: number): Ui
 
   // ── 5. Composite Image Data ──
   // Build composite by merging all layers onto a transparent canvas
-  const compCanvas = new OffscreenCanvas(canvasW, canvasH);
+  const compCanvas = document.createElement('canvas');
+  compCanvas.width = canvasW;
+  compCanvas.height = canvasH;
   const compCtx = compCanvas.getContext('2d')!;
   compCtx.clearRect(0, 0, canvasW, canvasH);
 
@@ -272,7 +274,9 @@ function writeCmykPsd(layers: CmykLayer[], canvasW: number, canvasH: number): Ui
       rgba[p * 4 + 2] = Math.round(y * k / 255);
       rgba[p * 4 + 3] = a;
     }
-    const tmpCanvas = new OffscreenCanvas(layer.width, layer.height);
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = layer.width;
+    tmpCanvas.height = layer.height;
     const tmpCtx = tmpCanvas.getContext('2d')!;
     tmpCtx.putImageData(new ImageData(rgba, layer.width, layer.height), 0, 0);
     compCtx.drawImage(tmpCanvas, layer.left, layer.top);
