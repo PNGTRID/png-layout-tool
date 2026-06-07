@@ -56,7 +56,7 @@ export function rectGap(a: LayoutCell, b: LayoutCell): GapInfo {
 /** Find the nearest N gaps from a cell to its neighbours */
 export function findNearestGaps(activeCell: LayoutCell, allCells: LayoutCell[], count: number): (GapInfo & { cell: LayoutCell })[] {
   return allCells
-    .filter(c => c.imageId !== activeCell.imageId || c !== activeCell)
+    .filter(c => c.cellId !== activeCell.cellId)
     .map(c => ({ cell: c, ...rectGap(activeCell, c) }))
     .sort((a, b) => a.gap - b.gap)
     .slice(0, count);

@@ -5,6 +5,42 @@ import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
 import { showToast } from '../components/Toast';
 
+/** Maximum number of files to load concurrently — prevents memory spikes */
+const MAX_CONCURRENT_LOADS = 10;
+
+/**
+ * Process an array of promises with bounded concurrency.
+ * Starts at most `concurrency` tasks at once; as each finishes, starts the next.
+ */
+async function parallelLimit<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIdx = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIdx < tasks.length) {
+      const idx = nextIdx++;
+      try {
+        results[idx] = await tasks[idx]();
+      } catch (err) {
+        // Re-throw so caller can handle; store undefined as sentinel
+        results[idx] = undefined as unknown as T;
+        throw err;
+      }
+    }
+  }
+
+  // Launch bounded workers — errors are caught per-task by the caller
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 export function useImages() {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -36,26 +72,25 @@ export function useImages() {
         return;
       }
 
-      // Load files in parallel, collecting errors per file
+      // Load files with bounded concurrency, collecting errors per file
       const failedFiles: string[] = [];
-      const newImages = (
-        await Promise.all(
-          validFiles.map(f =>
-            f.name.toLowerCase().endsWith('.psd')
-              ? loadPsdAsImages(f).catch(err => {
-                  failedFiles.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
-                  return [] as UploadedImage[];
-                })
-              : loadImageInfo(f).then(img => [img]).catch(err => {
-                  failedFiles.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
-                  return [] as UploadedImage[];
-                })
-          )
-        )
-      ).flat();
+      const loadTasks = validFiles.map(f => {
+        const isPsd = f.name.toLowerCase().endsWith('.psd');
+        return () =>
+          (isPsd
+            ? loadPsdAsImages(f)
+            : loadImageInfo(f).then(img => [img])
+          ).catch(err => {
+            failedFiles.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+            return [] as UploadedImage[];
+          });
+      });
 
-      // Notify user about failures
+      const newImages = (await parallelLimit(loadTasks, MAX_CONCURRENT_LOADS)).flat();
+
+      // Notify user about failures (log full list to console for debugging)
       if (failedFiles.length > 0) {
+        console.error('[images] Failed files:', failedFiles);
         showToast('error', `${failedFiles.length} 个文件加载失败: ${failedFiles.slice(0, 3).join('; ')}${failedFiles.length > 3 ? '...' : ''}`);
       }
 

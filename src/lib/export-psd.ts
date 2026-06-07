@@ -14,12 +14,17 @@ import { downloadBlob } from './download';
 
 export type ExportProgressCallback = (phase: string, current: number, total: number) => void;
 
+export interface ExportAbortSignal {
+  aborted: boolean;
+}
+
 export async function exportPSD(
   layout: LayoutResult,
   images: UploadedImage[],
   params: LayoutParams,
   filePath: string,
-  onProgress?: ExportProgressCallback
+  onProgress?: ExportProgressCallback,
+  abortSignal?: ExportAbortSignal
 ): Promise<void> {
   const totalCells = layout.cells.length;
   const layers: CmykLayer[] = [];
@@ -29,6 +34,9 @@ export async function exportPSD(
 
   // Phase 1: Render each cell to CMYK layer (sequential to avoid memory spikes)
   for (let idx = 0; idx < layout.cells.length; idx++) {
+    // Cancellation checkpoint
+    if (abortSignal?.aborted) return;
+
     onProgress?.('render', idx + 1, totalCells);
 
     const cell = layout.cells[idx];
@@ -43,6 +51,9 @@ export async function exportPSD(
 
     const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
     const img = await loadImage(imgData.objectUrl);
+
+    // Check abort after async operation
+    if (abortSignal?.aborted) return;
 
     drawRotatedImage(
       ctx, img,
@@ -69,6 +80,9 @@ export async function exportPSD(
     canvas.width = 0;
     canvas.height = 0;
   }
+
+  // Final abort check before expensive binary write
+  if (abortSignal?.aborted) return;
 
   // Phase 2: Add background if needed
   let hasBackground = false;

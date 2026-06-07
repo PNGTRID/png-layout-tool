@@ -58,7 +58,7 @@ function App() {
   }, []);
 
   const handleExportPNG = useCallback(async () => {
-    if (images.length === 0) return;
+    if (images.length === 0 || layout.cells.length === 0) return;
     setIsExporting(true);
     const t0 = performance.now();
     try {
@@ -90,7 +90,7 @@ function App() {
   }, [images, layout, params.backgroundColor, onExportProgress]);
 
   const handleExportPSD = useCallback(async () => {
-    if (images.length === 0) return;
+    if (images.length === 0 || layout.cells.length === 0) return;
     setIsExporting(true);
     const t0 = performance.now();
     try {
@@ -139,6 +139,19 @@ function App() {
     <div className="flex h-screen w-screen flex-col bg-lt-bg text-lt-text select-none overflow-hidden">
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* Full-screen drag overlay — visible when files are dragged over the window */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-accent-500/10 backdrop-blur-sm pointer-events-none">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-accent-400 bg-white/90 px-12 py-8 shadow-xl">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500">
+              <ImageIcon className="h-7 w-7 text-white" />
+            </div>
+            <p className="text-base font-medium text-accent-600">松开以添加图片</p>
+            <p className="text-xs text-lt-muted">PNG / PSD · 支持文件夹</p>
+          </div>
+        </div>
+      )}
 
       {/* Top Toolbar */}
       <Toolbar

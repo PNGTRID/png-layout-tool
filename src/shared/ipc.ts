@@ -61,9 +61,16 @@ class NullPlatformAPI implements IPlatformAPI {
   }
 }
 
-// Convenience proxy (backwards-compatible with existing code)
-export const platformAPI = new Proxy({} as IPlatformAPI, {
-  get(_target, prop: string) {
-    return (getPlatformAPI() as unknown as Record<string, unknown>)[prop];
+/**
+ * Convenience wrapper — delegates all calls to the active platform API.
+ * Replaces the previous Proxy-based approach for better debuggability
+ * and TypeScript type safety.
+ */
+export const platformAPI: IPlatformAPI = {
+  showSaveDialog(options: SaveDialogOptions): Promise<string | null> {
+    return getPlatformAPI().showSaveDialog(options);
   },
-});
+  writeFile(filePath: string, data: Uint8Array): Promise<void> {
+    return getPlatformAPI().writeFile(filePath, data);
+  },
+};

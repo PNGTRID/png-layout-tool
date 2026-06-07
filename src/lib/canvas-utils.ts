@@ -16,7 +16,7 @@ export function pxToCm(px: number, dpi: number): string {
 export function hitTest(cells: LayoutCell[], x: number, y: number): LayoutCell | null {
   for (let i = cells.length - 1; i >= 0; i--) {
     const c = cells[i];
-    if (x >= c.x && x <= c.x + c.drawWidth && y >= c.y && y <= c.y + c.drawHeight) {
+    if (x >= c.x && x < c.x + c.drawWidth && y >= c.y && y < c.y + c.drawHeight) {
       return c;
     }
   }

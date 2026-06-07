@@ -219,12 +219,25 @@ function writeCompositeImageData(
   }
 }
 
-/** Convert CMYKA (inverted ink) back to RGBA for canvas rendering */
+/**
+ * Convert CMYKA (inverted ink) back to RGBA for canvas rendering.
+ *
+ * In PSD's inverted ink convention:
+ *   C_inv = 255 × (1 - C),  K_inv = 255 × (1 - K)
+ *
+ * To recover RGB:
+ *   R = 255 × (1 - C)(1 - K)
+ *     = 255 × (C_inv / 255) × (K_inv / 255)
+ *     = C_inv × K_inv / 255
+ *
+ * Verification:
+ *   White RGBA(255,255,255) → CMYK(0,0,0,0) → inv(255,255,255,255) → 255×255/255 = 255 ✅
+ *   Black RGBA(0,0,0,0)    → CMYK(0,0,0,1) → inv(255,255,255,0)   → 255×0/255   = 0   ✅
+ */
 function cmykaToRgba(cmyka: Uint8Array, width: number, height: number): Uint8ClampedArray {
   const n = width * height;
   const rgba = new Uint8ClampedArray(n * 4);
   for (let p = 0; p < n; p++) {
-    // CMYK values are stored as inverted ink: 255 = 0% ink, 0 = 100% ink
     const c = cmyka[p * 5];
     const m = cmyka[p * 5 + 1];
     const y = cmyka[p * 5 + 2];
