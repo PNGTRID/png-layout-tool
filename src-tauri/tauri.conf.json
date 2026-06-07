@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/feat/json-schema-generator/core/tauri-config-schema/schema.json",
-  "productName": "PNG 排版工具",
+  "productName": "PNG Layout Tool",
   "version": "1.0.0",
   "identifier": "com.pnglayout.tool",
   "build": {
