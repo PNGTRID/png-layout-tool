@@ -1,29 +1,17 @@
 import { LayoutResult, UploadedImage } from '../shared/types';
 import { platformAPI } from '../shared/ipc';
-
-const imageCache = new Map<string, HTMLImageElement>();
-
-async function loadImage(objectUrl: string): Promise<HTMLImageElement> {
-  const cached = imageCache.get(objectUrl);
-  if (cached && cached.complete) {
-    return cached;
-  }
-
-  const img = new Image();
-  img.src = objectUrl;
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error(`Failed to load image: ${objectUrl}`));
-  });
-  imageCache.set(objectUrl, img);
-  return img;
-}
+import { drawRotatedImage } from './draw-rotated';
+import { loadImage } from './image-cache';
+import { getSrcCropRect } from './canvas-utils';
+import { downloadBlob } from './download';
+import type { ExportProgressCallback } from './export-psd';
 
 export async function renderToCanvas(
   canvas: HTMLCanvasElement,
   layout: LayoutResult,
   images: UploadedImage[],
-  backgroundColor: string | null
+  backgroundColor: string | null,
+  onProgress?: ExportProgressCallback
 ): Promise<void> {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Failed to get 2d context');
@@ -40,28 +28,36 @@ export async function renderToCanvas(
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
+  // Build image lookup map for O(1) access instead of O(n) find()
+  const imageMap = new Map(images.map(img => [img.id, img]));
+
   // Draw each image at its layout position
-  for (const cell of layout.cells) {
-    const imgData = images.find(i => i.id === cell.imageId);
+  const totalCells = layout.cells.length;
+  for (let idx = 0; idx < totalCells; idx++) {
+    onProgress?.('render', idx + 1, totalCells);
+
+    const cell = layout.cells[idx];
+    const imgData = imageMap.get(cell.imageId);
     if (!imgData) continue;
 
     const img = await loadImage(imgData.objectUrl);
-    const srcW = cell.srcWidth - cell.srcTrimX * 2;
-    const srcH = cell.srcHeight - cell.srcTrimY * 2;
+    const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
 
-    if (cell.rotated) {
-      ctx.save();
-      ctx.translate(cell.x + cell.drawWidth, cell.y);
-      ctx.rotate(Math.PI / 2);
-      ctx.drawImage(img, cell.srcTrimX, cell.srcTrimY, srcW, srcH, 0, 0, cell.drawHeight, cell.drawWidth);
-      ctx.restore();
-    } else {
-      ctx.drawImage(img, cell.srcTrimX, cell.srcTrimY, srcW, srcH, cell.x, cell.y, cell.drawWidth, cell.drawHeight);
-    }
+    drawRotatedImage(
+      ctx, img,
+      cell.x, cell.y, cell.drawWidth, cell.drawHeight,
+      trimX, trimY, trimW, trimH,
+      imgData.rotation, cell.rotated
+    );
   }
 }
 
-export async function exportPNG(canvas: HTMLCanvasElement, filePath: string): Promise<void> {
+export async function exportPNG(
+  canvas: HTMLCanvasElement,
+  filePath: string,
+  onProgress?: ExportProgressCallback
+): Promise<void> {
+  onProgress?.('compress', 0, 1);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((b) => {
       if (b) resolve(b);
@@ -72,17 +68,12 @@ export async function exportPNG(canvas: HTMLCanvasElement, filePath: string): Pr
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = new Uint8Array(arrayBuffer);
 
-  if (filePath !== 'layout.png') {
+  onProgress?.('save', 0, 1);
+  if (filePath !== '__browser_fallback__') {
     await platformAPI.writeFile(filePath, buffer);
   } else {
-    // Browser fallback: trigger download
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filePath.split('/').pop() || filePath.split('\\').pop() || 'export.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, 'layout.png');
   }
+
+  onProgress?.('done', 1, 1);
 }

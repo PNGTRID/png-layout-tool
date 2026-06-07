@@ -1,8 +1,37 @@
 import { UploadedImage, LayoutParams, LayoutResult, LayoutCell } from '../shared/types';
+import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS } from '../shared/constants';
 
 /** 将 cm 转换为像素（基于 DPI） */
-function cmToPx(cm: number, dpi: number): number {
+export function cmToPx(cm: number, dpi: number): number {
   return Math.round(cm * dpi / 2.54);
+}
+
+/** 将像素转换为 cm */
+export function pxToCmValue(px: number, dpi: number): number {
+  return px * 2.54 / dpi;
+}
+
+/** 获取图片的有效排版尺寸（考虑用户自定义 cm 尺寸和旋转） */
+function getEffectiveDimensions(
+  img: UploadedImage,
+  dpi: number
+): { w: number; h: number } {
+  let baseW: number;
+  let baseH: number;
+
+  if (img.targetWidthCm !== undefined && img.targetHeightCm !== undefined) {
+    baseW = cmToPx(img.targetWidthCm, dpi);
+    baseH = cmToPx(img.targetHeightCm, dpi);
+  } else {
+    baseW = img.trimWidth;
+    baseH = img.trimHeight;
+  }
+
+  // Rotation 90 or 270 swaps width and height
+  if (img.rotation === 90 || img.rotation === 270) {
+    return { w: baseH, h: baseW };
+  }
+  return { w: baseW, h: baseH };
 }
 
 // ─── MaxRects data structures ───────────────────────────────────────
@@ -109,9 +138,13 @@ function placeAndSplit(
 
 interface PackItem {
   img: UploadedImage;
+  copyIndex: number;  // which copy of this image (0-based)
   w: number;
   h: number;
 }
+
+/** Simple monotonic counter for unique cellId generation */
+interface IdCounter { value: number; }
 
 /**
  * Run one MaxRects BSSF pass with the given item order.
@@ -121,10 +154,10 @@ function packOneStrategy(
   items: PackItem[],
   canvasW: number,
   gapPx: number,
-  autoRotate: boolean
+  autoRotate: boolean,
+  idCounter: IdCounter
 ): LayoutCell[] {
-  const VERY_TALL = 1_000_000_000;
-  const freeRects: FreeRect[] = [{ x: 0, y: 0, w: canvasW, h: VERY_TALL }];
+  const freeRects: FreeRect[] = [{ x: 0, y: 0, w: canvasW, h: MAX_CANVAS_HEIGHT }];
   const cells: LayoutCell[] = [];
 
   for (const item of items) {
@@ -140,8 +173,8 @@ function packOneStrategy(
     const origFit = findBestBSSF(freeRects, drawW, drawH, canvasW);
     let bestW = drawW, bestH = drawH, bestFit = origFit, bestRotated = false;
 
-    // Rotated orientation (swap w ↔ h)
-    if (autoRotate && item.w !== item.h) {
+    // Rotated orientation (swap w ↔ h) — skip if user already set manual rotation
+    if (autoRotate && item.w !== item.h && item.img.rotation === 0) {
       let rotW = item.h;
       let rotH = item.w;
       if (rotW > canvasW) {
@@ -163,6 +196,7 @@ function packOneStrategy(
     if (!bestFit) continue;
 
     cells.push({
+      cellId: `cell-${idCounter.value++}`,
       imageId: item.img.id,
       x: Math.round(bestFit.x),
       y: Math.round(bestFit.y),
@@ -172,6 +206,8 @@ function packOneStrategy(
       srcHeight: item.img.height,
       srcTrimX: item.img.trimX,
       srcTrimY: item.img.trimY,
+      srcTrimWidth: item.img.trimWidth,
+      srcTrimHeight: item.img.trimHeight,
       rotated: bestRotated,
     });
 
@@ -210,18 +246,42 @@ function compactCells(cells: LayoutCell[], gapPx: number): void {
 
 // ─── Public API ─────────────────────────────────────────────────────
 
-export function calculateLayout(images: UploadedImage[], params: LayoutParams): LayoutResult {
+export interface LayoutWarning {
+  type: 'overflow' | 'unplaced';
+  message: string;
+}
+
+export interface LayoutResultWithWarnings extends LayoutResult {
+  warnings: LayoutWarning[];
+}
+
+export function calculateLayout(images: UploadedImage[], params: LayoutParams): LayoutResultWithWarnings {
   if (images.length === 0) {
-    return { canvasWidth: 0, canvasHeight: 0, cells: [] };
+    return { canvasWidth: 0, canvasHeight: 0, cells: [], warnings: [] };
   }
+
+  const t0 = performance.now();
+  const warnings: LayoutWarning[] = [];
 
   const gapPx = cmToPx(params.gap, params.dpi);
 
-  // 1. Expand images by quantity
-  const expanded: UploadedImage[] = [];
+  // 1. Expand images by quantity — each copy gets its own index
+  const expanded: { img: UploadedImage; copyIndex: number }[] = [];
   for (const img of images) {
     const count = img.quantity || 1;
-    for (let n = 0; n < count; n++) expanded.push(img);
+    for (let n = 0; n < count; n++) {
+      if (expanded.length >= MAX_LAYOUT_ITEMS) break;
+      expanded.push({ img, copyIndex: n });
+    }
+    if (expanded.length >= MAX_LAYOUT_ITEMS) break;
+  }
+
+  if (expanded.length >= MAX_LAYOUT_ITEMS) {
+    const totalRequested = images.reduce((sum, img) => sum + (img.quantity || 1), 0);
+    warnings.push({
+      type: 'unplaced',
+      message: `图片数量过多（${totalRequested}），已截断为前 ${MAX_LAYOUT_ITEMS} 张`,
+    });
   }
 
   // 2. Determine canvas width
@@ -229,16 +289,18 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
   if (params.canvasWidthCm > 0) {
     canvasWidthPx = cmToPx(params.canvasWidthCm, params.dpi);
   } else {
-    canvasWidthPx = expanded.reduce((sum, img) => sum + img.trimWidth, 0) +
+    canvasWidthPx = expanded.reduce((sum, { img }) => sum + img.trimWidth, 0) +
       gapPx * Math.max(expanded.length - 1, 0);
   }
 
-  // 3. Prepare items
-  const items: PackItem[] = expanded.map(img => ({
-    img,
-    w: img.trimWidth,
-    h: img.trimHeight,
-  }));
+  // 3. Prepare items — use target dimensions if set
+  const items: PackItem[] = expanded.map(({ img, copyIndex }) => {
+    const { w, h } = getEffectiveDimensions(img, params.dpi);
+    return { img, copyIndex, w, h };
+  });
+
+  // Create local ID counter (avoids module-level mutable state)
+  const idCounter: IdCounter = { value: 0 };
 
   // 4. Try multiple sorting strategies — pick the most compact result
   const strategies: { name: string; items: PackItem[] }[] = [
@@ -250,30 +312,50 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
 
   let bestCells: LayoutCell[] = [];
   let bestHeight = Infinity;
+  let bestStrategy = '';
 
   for (const strategy of strategies) {
-    const cells = packOneStrategy(strategy.items, canvasWidthPx, gapPx, params.autoRotate);
+    // Reset counter for each strategy to get comparable ids
+    idCounter.value = 0;
+    const cells = packOneStrategy(strategy.items, canvasWidthPx, gapPx, params.autoRotate, idCounter);
     compactCells(cells, gapPx);
 
-    const height = cells.length > 0
-      ? Math.max(...cells.map(c => c.y + c.drawHeight))
-      : 0;
+    // Use reduce to avoid Math.max(...array) stack overflow on large arrays
+    const height = cells.reduce((max, c) => Math.max(max, c.y + c.drawHeight), 0);
 
     if (height < bestHeight) {
       bestHeight = height;
       bestCells = cells;
+      bestStrategy = strategy.name;
     }
   }
 
-  // 5. Fixed canvas height → center vertically
+  // Check for unplaced items
+  if (bestCells.length < items.length) {
+    warnings.push({
+      type: 'unplaced',
+      message: `${items.length - bestCells.length}/${items.length} 张图片无法放入画布`,
+    });
+  }
+
+  // 5. Fixed canvas height → center vertically, check overflow
   if (params.canvasHeightCm > 0) {
     const targetH = cmToPx(params.canvasHeightCm, params.dpi);
-    if (bestHeight < targetH) {
+    if (bestHeight > targetH) {
+      warnings.push({
+        type: 'overflow',
+        message: `内容高度 (${pxToCmValue(bestHeight, params.dpi).toFixed(1)} cm) 超出画布高度 (${params.canvasHeightCm} cm)`,
+      });
+    } else if (bestHeight < targetH) {
       const offset = Math.round((targetH - bestHeight) / 2);
       bestCells.forEach(c => { c.y += offset; });
     }
-    return { canvasWidth: canvasWidthPx, canvasHeight: targetH, cells: bestCells };
+    const elapsed = (performance.now() - t0).toFixed(1);
+    console.info(`[layout] strategy=${bestStrategy}, ${bestCells.length} cells, ${elapsed}ms, warnings=${warnings.length}`);
+    return { canvasWidth: canvasWidthPx, canvasHeight: targetH, cells: bestCells, warnings };
   }
 
-  return { canvasWidth: canvasWidthPx, canvasHeight: Math.round(bestHeight), cells: bestCells };
+  const elapsed = (performance.now() - t0).toFixed(1);
+  console.info(`[layout] strategy=${bestStrategy}, ${bestCells.length} cells, ${elapsed}ms, warnings=${warnings.length}`);
+  return { canvasWidth: canvasWidthPx, canvasHeight: Math.round(bestHeight), cells: bestCells, warnings };
 }

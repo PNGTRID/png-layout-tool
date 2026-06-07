@@ -9,7 +9,16 @@ function isImageFile(file: File): boolean {
   return file.type === 'image/png' || name.endsWith('.png') || name.endsWith('.psd');
 }
 
-async function traverseEntry(entry: FileSystemEntry, files: File[]): Promise<void> {
+const MAX_DIRECTORY_DEPTH = 10;
+
+async function traverseEntry(
+  entry: FileSystemEntry,
+  files: File[],
+  depth: number = 0
+): Promise<void> {
+  // Guard against excessively deep or cyclic directory structures
+  if (depth > MAX_DIRECTORY_DEPTH) return;
+
   if (entry.isFile) {
     const fileEntry = entry as FileSystemFileEntry;
     return new Promise((resolve) => {
@@ -31,7 +40,7 @@ async function traverseEntry(entry: FileSystemEntry, files: File[]): Promise<voi
             return;
           }
           for (const childEntry of entries) {
-            await traverseEntry(childEntry, files);
+            await traverseEntry(childEntry, files, depth + 1);
           }
           // Continue reading (directories may be batched)
           readEntries();

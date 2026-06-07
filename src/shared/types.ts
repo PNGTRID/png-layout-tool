@@ -9,6 +9,9 @@ export interface UploadedImage {
   trimWidth: number;     // actual content width after trimming transparent borders
   trimHeight: number;    // actual content height after trimming transparent borders
   quantity: number;      // how many copies to place in layout (default 1)
+  rotation: 0 | 90 | 180 | 270;  // manual rotation angle (default 0)
+  targetWidthCm?: number;  // user-specified output width (cm), undefined = use natural size
+  targetHeightCm?: number; // user-specified output height (cm), undefined = use natural size
   dataUrl: string;
   objectUrl: string;
 }
@@ -24,6 +27,7 @@ export interface LayoutParams {
 }
 
 export interface LayoutCell {
+  cellId: string;       // unique per cell (different copies of same image get different ids)
   imageId: string;
   x: number;
   y: number;
@@ -33,6 +37,8 @@ export interface LayoutCell {
   srcHeight: number;
   srcTrimX: number;
   srcTrimY: number;
+  srcTrimWidth: number;   // actual content width after trimming transparent borders
+  srcTrimHeight: number;  // actual content height after trimming transparent borders
   rotated: boolean;   // true = rotated 90° CW for better packing
 }
 

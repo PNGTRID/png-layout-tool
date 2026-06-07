@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { Upload } from 'lucide-react';
+import { Upload, FolderOpen } from 'lucide-react';
 
 interface UploadAreaProps {
   onFilesSelected: (files: FileList | File[] | null) => void;
@@ -21,16 +21,13 @@ export function UploadArea({ onFilesSelected, isDragging }: UploadAreaProps) {
   return (
     <div
       className={`
-        flex flex-col items-center justify-center
-        rounded-xl border-2 border-dashed
-        transition-all duration-200 cursor-pointer
-        checkerboard
+        group relative flex items-center gap-3 rounded-xl px-4 py-3
+        border-2 border-dashed transition-all duration-200 cursor-pointer
         ${isDragging
-          ? 'border-accent-500 bg-accent-50 scale-[1.02]'
-          : 'border-lt-border bg-white hover:border-accent-400 hover:bg-lt-hover'
+          ? 'border-accent-500 bg-accent-50'
+          : 'border-lt-border bg-lt-card hover:border-accent-400 hover:bg-accent-50/40'
         }
       `}
-      style={{ minHeight: 120 }}
       onClick={handleClick}
     >
       <input
@@ -42,20 +39,32 @@ export function UploadArea({ onFilesSelected, isDragging }: UploadAreaProps) {
         onChange={handleChange}
       />
 
+      {/* 图标 */}
       <div className={`
-        flex h-16 w-16 items-center justify-center rounded-2xl
+        flex h-9 w-9 shrink-0 items-center justify-center rounded-lg
         transition-colors duration-200
-        ${isDragging ? 'bg-accent-100' : 'bg-lt-hover'}
+        ${isDragging
+          ? 'bg-accent-500 text-white'
+          : 'bg-accent-100 text-accent-600 group-hover:bg-accent-500 group-hover:text-white'
+        }
       `}>
-        <Upload className={`h-8 w-8 transition-colors ${isDragging ? 'text-accent-500' : 'text-lt-muted'}`} />
+        <Upload className="h-4 w-4" />
       </div>
 
-      <p className="mt-4 text-sm text-lt-sub">
-        拖拽 PNG / PSD 图片到此处，或点击上传
-      </p>
-      <p className="mt-1 text-xs text-lt-muted">
-        支持多选、文件夹拖拽，自动识别透明背景
-      </p>
+      {/* 文字 */}
+      <div className="flex flex-col">
+        <span className={`text-xs font-medium leading-tight ${isDragging ? 'text-accent-600' : 'text-lt-text'}`}>
+          {isDragging ? '松开以上传' : '上传图片'}
+        </span>
+        <span className="text-[10px] text-lt-muted leading-tight mt-0.5">
+          PNG / PSD · 支持多选和文件夹拖拽
+        </span>
+      </div>
+
+      {/* 文件夹小图标 */}
+      {!isDragging && (
+        <FolderOpen className="ml-auto h-4 w-4 text-lt-dim group-hover:text-accent-400 transition-colors" />
+      )}
     </div>
   );
 }

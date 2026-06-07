@@ -3,25 +3,67 @@ export interface SaveDialogOptions {
   defaultPath?: string;
 }
 
-// Detect if running inside Tauri
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/**
+ * Platform abstraction layer.
+ * Provides a mock-friendly interface for Tauri IPC.
+ * Call setPlatformAPI() in tests to inject a mock.
+ */
 
-export const platformAPI = {
+export interface IPlatformAPI {
+  showSaveDialog(options: SaveDialogOptions): Promise<string | null>;
+  writeFile(filePath: string, data: Uint8Array): Promise<void>;
+}
+
+// Production implementation — uses dynamic import to keep Tauri optional
+class TauriPlatformAPI implements IPlatformAPI {
   async showSaveDialog(options: SaveDialogOptions): Promise<string | null> {
-    if (isTauri) {
-      const { save } = await import('@tauri-apps/plugin-dialog');
-      return await save({
-        filters: options.filters,
-        defaultPath: options.defaultPath,
-      });
-    }
-    return null;
-  },
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    return await save({
+      filters: options.filters,
+      defaultPath: options.defaultPath,
+    });
+  }
 
   async writeFile(filePath: string, data: Uint8Array): Promise<void> {
-    if (isTauri) {
-      const { writeFile } = await import('@tauri-apps/plugin-fs');
-      await writeFile(filePath, data);
-    }
+    const { writeFile } = await import('@tauri-apps/plugin-fs');
+    await writeFile(filePath, data);
+  }
+}
+
+// Detect Tauri environment at runtime
+const isTauri = typeof window !== 'undefined' &&
+  '__TAURI_INTERNALS__' in window &&
+  // Extra check: ensure the internal object is a real Tauri bridge
+  typeof (window as Record<string, unknown>).__TAURI_INTERNALS__ === 'object';
+
+// Singleton instance — replaceable for testing
+let _instance: IPlatformAPI | null = null;
+
+export function getPlatformAPI(): IPlatformAPI {
+  if (!_instance) {
+    _instance = isTauri ? new TauriPlatformAPI() : new NullPlatformAPI();
+  }
+  return _instance;
+}
+
+/** Replace the platform API (use in tests) */
+export function setPlatformAPI(api: IPlatformAPI | null): void {
+  _instance = api;
+}
+
+// Null-object fallback for non-Tauri environments
+class NullPlatformAPI implements IPlatformAPI {
+  async showSaveDialog(): Promise<string | null> {
+    return null;
+  }
+  async writeFile(): Promise<void> {
+    // no-op in browser
+  }
+}
+
+// Convenience proxy (backwards-compatible with existing code)
+export const platformAPI = new Proxy({} as IPlatformAPI, {
+  get(_target, prop: string) {
+    return (getPlatformAPI() as unknown as Record<string, unknown>)[prop];
   },
-};
+});
