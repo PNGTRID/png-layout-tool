@@ -1,4 +1,4 @@
-import { Download, Trash2, Layers, ImagePlus, FileImage, LayoutGrid } from 'lucide-react';
+import { Download, Trash2, Layers, ImagePlus, FileImage, LayoutGrid, RefreshCw } from 'lucide-react';
 
 interface ToolbarProps {
   onExportPNG: () => void;
@@ -6,9 +6,11 @@ interface ToolbarProps {
   onClear: () => void;
   onRelayout: () => void;
   hasImages: boolean;
+  checkingUpdate?: boolean;
+  onCheckUpdate?: () => void;
 }
 
-export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImages }: ToolbarProps) {
+export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImages, checkingUpdate, onCheckUpdate }: ToolbarProps) {
   return (
     <div className="flex h-12 items-center justify-between border-b border-lt-border bg-white px-4">
       {/* Left: App branding */}
@@ -77,6 +79,21 @@ export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImag
           title="清空所有图片"
         >
           <Trash2 className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="mx-0.5 h-5 w-px bg-lt-border" />
+
+        {/* Check for updates */}
+        <button
+          onClick={onCheckUpdate}
+          disabled={checkingUpdate}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-lt-muted
+                     transition-all hover:bg-accent-50 hover:text-accent-600
+                     active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          title="检查更新"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">{checkingUpdate ? '检查中...' : '检查更新'}</span>
         </button>
       </div>
     </div>

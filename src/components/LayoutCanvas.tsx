@@ -63,6 +63,7 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
     isDragging,
     nearestGaps,
     dpi: params.dpi,
+    scaleReady,
   });
 
   // Sync export canvas dimensions

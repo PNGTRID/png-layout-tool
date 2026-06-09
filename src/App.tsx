@@ -185,6 +185,13 @@ function App() {
         onClear={handleClearAll}
         onRelayout={relayout}
         hasImages={hasImages && !isExporting}
+        checkingUpdate={updater.checking}
+        onCheckUpdate={async () => {
+          const found = await updater.checkForUpdate();
+          if (!found && !updater.error) {
+            showToast('info', '当前已是最新版本');
+          }
+        }}
       />
 
       {/* Main Content — three columns */}

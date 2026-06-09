@@ -22,6 +22,7 @@ interface UseCanvasRendererOptions {
   isDragging: boolean;
   nearestGaps: (GapInfo & { cell: import('../shared/types').LayoutCell })[];
   dpi: number;
+  scaleReady: boolean;
 }
 
 /**
@@ -44,12 +45,15 @@ export function useCanvasRenderer({
   isDragging,
   nearestGaps,
   dpi,
+  scaleReady,
 }: UseCanvasRendererOptions) {
   // Stable serialization key for highlight state
   const highlightKey = `${selectedCellId}|${hoveredCellId}|${isDragging}`;
 
   useEffect(() => {
     if (layout.canvasWidth === 0 || layout.canvasHeight === 0) return;
+    // Wait until the canvas DOM element is actually mounted (scaleReady ensures this)
+    if (!scaleReady) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -138,5 +142,5 @@ export function useCanvasRenderer({
     })();
 
     return () => { cancelled = true; };
-  }, [canvasRef, layout, images, backgroundColor, highlightKey, nearestGaps, dpi, selectedCellId, hoveredCellId, isDragging]);
+  }, [canvasRef, layout, images, backgroundColor, highlightKey, nearestGaps, dpi, selectedCellId, hoveredCellId, isDragging, scaleReady]);
 }
