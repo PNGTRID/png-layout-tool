@@ -14,6 +14,8 @@ import { UploadArea } from './components/UploadArea';
 import { ImageList } from './components/ImageList';
 import { LayoutCanvas } from './components/LayoutCanvas';
 import { ToastContainer, showToast } from './components/Toast';
+import { UpdateDialog } from './components/UpdateDialog';
+import { useAppUpdater } from './hooks/useAppUpdater';
 import { platformAPI } from './shared/ipc';
 
 /** Map technical error messages to user-friendly Chinese text */
@@ -30,6 +32,7 @@ function App() {
   const { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity } = useImages();
   const { params, layout, warnings, updateParam, relayout, updatePosition } = useLayout(images);
   const { isDragging } = useDragDrop({ onFilesDropped: addFiles });
+  const updater = useAppUpdater();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
@@ -40,6 +43,14 @@ function App() {
       showToast(w.type === 'overflow' ? 'warning' : 'info', w.message);
     }
   }, [warnings]);
+
+  // Check for updates on startup (delay 3s to avoid blocking initial render)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updater.checkForUpdate();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Shared progress callback for exports
   const onExportProgress: ExportProgressCallback = useCallback((phase, current, total) => {
@@ -139,6 +150,20 @@ function App() {
     <div className="flex h-screen w-screen flex-col bg-lt-bg text-lt-text select-none overflow-hidden">
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* Update dialog */}
+      {updater.updateAvailable && updater.updateInfo && (
+        <UpdateDialog
+          version={updater.updateInfo.version}
+          notes={updater.updateInfo.body}
+          downloading={updater.downloading}
+          downloadProgress={updater.downloadProgress}
+          installing={updater.installing}
+          error={updater.error}
+          onConfirm={updater.downloadAndInstall}
+          onDismiss={updater.dismissUpdate}
+        />
+      )}
 
       {/* Full-screen drag overlay — visible when files are dragged over the window */}
       {isDragging && (
