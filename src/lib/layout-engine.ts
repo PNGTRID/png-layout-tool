@@ -51,17 +51,18 @@ function containsRect(outer: FreeRect, inner: FreeRect): boolean {
 }
 
 /**
- * Best Short Side Fit (BSSF) heuristic — the gold standard for
- * irregular rectangle packing.  Prefers free rectangles where the
- * item fits most tightly (smallest leftover on the shorter side).
+ * Best Short Side Fit (BSSF) heuristic with area awareness.
+ * Prefers free rectangles where the item fits most tightly
+ * (smallest leftover on the shorter side), with area utilization
+ * as a tiebreaker to prefer placements that waste less space.
  */
 function findBestBSSF(
   freeRects: FreeRect[],
   itemW: number,
   itemH: number,
   canvasW: number
-): { x: number; y: number; shortSide: number; longSide: number } | null {
-  let best: { x: number; y: number; shortSide: number; longSide: number } | null = null;
+): { x: number; y: number; shortSide: number; longSide: number; areaFit: number } | null {
+  let best: { x: number; y: number; shortSide: number; longSide: number; areaFit: number } | null = null;
 
   for (const fr of freeRects) {
     // Item must fit within canvas width
@@ -73,11 +74,14 @@ function findBestBSSF(
     const leftH = fr.h - itemH;
     const shortSide = Math.min(leftW, leftH);
     const longSide = Math.max(leftW, leftH);
+    // Area fit: ratio of item area to free rect area (higher = less wasted space)
+    const areaFit = (itemW * itemH) / (fr.w * fr.h);
 
     if (!best ||
         shortSide < best.shortSide ||
-        (shortSide === best.shortSide && longSide < best.longSide)) {
-      best = { x: fr.x, y: fr.y, shortSide, longSide };
+        (shortSide === best.shortSide && longSide < best.longSide) ||
+        (shortSide === best.shortSide && longSide === best.longSide && areaFit > best.areaFit)) {
+      best = { x: fr.x, y: fr.y, shortSide, longSide, areaFit };
     }
   }
 
@@ -147,7 +151,27 @@ interface PackItem {
 interface IdCounter { value: number; }
 
 /**
+ * Score a fit for a given orientation — lower is better.
+ * Combines BSSF tightness with area-efficiency to prefer placements
+ * that waste less space.
+ *
+ * Uses the areaFit ratio (0–1) already computed by findBestBSSF.
+ */
+function scoreFit(
+  fit: { shortSide: number; longSide: number; areaFit: number } | null
+): number {
+  if (!fit) return Infinity;
+  // BSSF component: tighter fit = lower score
+  const tightness = fit.shortSide * 2 + fit.longSide;
+  // Weighted combination: 70% tightness, 30% area efficiency
+  // areaFit is already 0–1 (higher = better fill), so invert for scoring
+  return tightness * (1.3 - 0.3 * fit.areaFit);
+}
+
+/**
  * Run one MaxRects BSSF pass with the given item order.
+ * When autoRotate is enabled, evaluates both orientations and picks
+ * the one that scores better on combined tightness + area utilization.
  * Returns the placed cells.
  */
 function packOneStrategy(
@@ -172,6 +196,7 @@ function packOneStrategy(
 
     const origFit = findBestBSSF(freeRects, drawW, drawH, canvasW);
     let bestW = drawW, bestH = drawH, bestFit = origFit, bestRotated = false;
+    let bestScore = scoreFit(origFit);
 
     // Rotated orientation (swap w ↔ h) — skip if user already set manual rotation
     if (autoRotate && item.w !== item.h && item.img.rotation === 0) {
@@ -183,13 +208,15 @@ function packOneStrategy(
         rotH = Math.round(item.w * s);
       }
       const rotFit = findBestBSSF(freeRects, rotW, rotH, canvasW);
-      if (rotFit && (!bestFit ||
-          rotFit.shortSide < bestFit.shortSide ||
-          (rotFit.shortSide === bestFit.shortSide && rotFit.longSide < bestFit.longSide))) {
-        bestW = rotW;
-        bestH = rotH;
-        bestFit = rotFit;
-        bestRotated = true;
+      if (rotFit) {
+        const rotScore = scoreFit(rotFit);
+        if (rotScore < bestScore) {
+          bestW = rotW;
+          bestH = rotH;
+          bestFit = rotFit;
+          bestRotated = true;
+          bestScore = rotScore;
+        }
       }
     }
 
@@ -222,25 +249,57 @@ function packOneStrategy(
  * Post-placement vertical compaction:
  * Try to slide each cell upward as far as possible without
  * overlapping previously-compacted cells.
+ *
+ * Optimized with sweep-line approach:
+ * 1. Sort cells by Y (top to bottom)
+ * 2. Maintain a set of "active" cells that could overlap vertically
+ * 3. For each cell, only check active cells for horizontal overlap
+ * This reduces from O(n²) to ~O(n · k) where k is the average
+ * number of vertically overlapping cells (typically much < n).
  */
 function compactCells(cells: LayoutCell[], gapPx: number): void {
-  // Process from top to bottom
+  if (cells.length <= 1) return;
+
+  // Sort by original Y then X for stable processing
   cells.sort((a, b) => a.y - b.y || a.x - b.x);
 
-  for (let i = 0; i < cells.length; i++) {
-    const cell = cells[i];
-    let minY = 0;
+  // Use an array as a sliding window of active cells.
+  // Since cells are processed top-to-bottom, once a cell's bottom + gap
+  // is above the current cell's candidate Y, it can never block any
+  // subsequent cell → safe to remove from the active set.
+  const active: LayoutCell[] = [];
 
-    for (let j = 0; j < i; j++) {
-      const other = cells[j];
-      // Check horizontal overlap (with gap)
-      if (cell.x < other.x + other.drawWidth + gapPx &&
-          cell.x + cell.drawWidth + gapPx > other.x) {
-        minY = Math.max(minY, other.y + other.drawHeight + gapPx);
+  for (const cell of cells) {
+    let candidateY = 0;
+
+    // Check all active cells for horizontal overlap
+    let writeIdx = 0;
+    for (let i = 0; i < active.length; i++) {
+      const other = active[i];
+      const otherBottom = other.y + other.drawHeight;
+
+      // If this active cell's bottom is at or above candidate Y (with gap),
+      // it might still block. Keep it. Otherwise it's too far above to
+      // matter for any future cell (since we process top-to-bottom).
+      if (otherBottom + gapPx > candidateY) {
+        // Check horizontal overlap
+        const cellRight = cell.x + cell.drawWidth;
+        const otherRight = other.x + other.drawWidth;
+        if (cell.x < otherRight + gapPx && other.x < cellRight + gapPx) {
+          const blockedY = otherBottom + gapPx;
+          if (blockedY > candidateY) {
+            candidateY = blockedY;
+          }
+        }
+        // Keep this active cell (it's still relevant)
+        active[writeIdx++] = other;
       }
+      // else: this active cell is too far above to matter → drop it
     }
+    active.length = writeIdx;
 
-    cell.y = minY;
+    cell.y = candidateY;
+    active.push(cell);
   }
 }
 
@@ -304,10 +363,16 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
 
   // 4. Try multiple sorting strategies — pick the most compact result
   const strategies: { name: string; items: PackItem[] }[] = [
-    { name: 'area',    items: [...items].sort((a, b) => (b.w * b.h) - (a.w * a.h)) },
-    { name: 'maxSide', items: [...items].sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h)) },
-    { name: 'width',   items: [...items].sort((a, b) => b.w - a.w) },
-    { name: 'height',  items: [...items].sort((a, b) => b.h - a.h) },
+    { name: 'area',      items: [...items].sort((a, b) => (b.w * b.h) - (a.w * a.h)) },
+    { name: 'maxSide',   items: [...items].sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h)) },
+    { name: 'width',     items: [...items].sort((a, b) => b.w - a.w) },
+    { name: 'height',    items: [...items].sort((a, b) => b.h - a.h) },
+    { name: 'perimeter', items: [...items].sort((a, b) => (b.w + b.h) - (a.w + a.h)) },
+    { name: 'aspect',    items: [...items].sort((a, b) => {
+      const ratioA = Math.max(a.w, a.h) / Math.max(1, Math.min(a.w, a.h));
+      const ratioB = Math.max(b.w, b.h) / Math.max(1, Math.min(b.w, b.h));
+      return ratioB - ratioA;  // most elongated first — benefits most from rotation
+    })},
   ];
 
   let bestCells: LayoutCell[] = [];

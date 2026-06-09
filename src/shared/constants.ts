@@ -7,11 +7,21 @@
 /** Maximum thumbnail dimension (px) — balances quality vs memory */
 export const MAX_THUMB_SIZE = 200;
 
-/** Maximum supported image dimension (px) — canvas API limit */
+/**
+ * Maximum supported image dimension (px) — canvas API hard limit.
+ * Images beyond this are rejected (not downscaled) to preserve quality.
+ */
 export const MAX_IMAGE_DIMENSION = 16384;
 
 /** Maximum file size (MB) for import */
 export const MAX_FILE_SIZE_MB = 200;
+
+/**
+ * Maximum canvas pixel budget for PREVIEW rendering only (width × height).
+ * Does NOT affect export — export always uses full resolution for print quality.
+ * ~100M pixels ≈ 400MB RGBA — keeps the UI responsive without crashing.
+ */
+export const MAX_PREVIEW_PIXELS = 100_000_000;
 
 // ─── Layout engine ─────────────────────────────────────────────────
 /** Maximum canvas height (px) — bounded to prevent runaway memory */

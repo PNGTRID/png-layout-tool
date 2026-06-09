@@ -6,7 +6,7 @@
 import { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
 import { platformAPI } from '../shared/ipc';
 import { drawRotatedImage } from './draw-rotated';
-import { loadImage } from './image-cache';
+import { loadImage, clearImageCache } from './image-cache';
 import { rgbaToCmyka } from './cmyk';
 import { writeCmykPsd, CmykLayer } from './psd-writer';
 import { getSrcCropRect } from './canvas-utils';
@@ -28,6 +28,9 @@ export async function exportPSD(
 ): Promise<void> {
   const totalCells = layout.cells.length;
   const layers: CmykLayer[] = [];
+
+  // Clear image cache before PSD export to free memory from preview rendering
+  clearImageCache();
 
   // Build image lookup map for O(1) access instead of O(n) find()
   const imageMap = new Map(images.map(img => [img.id, img]));

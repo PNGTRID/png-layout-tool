@@ -5,6 +5,7 @@
 
 import { useEffect, type RefObject } from 'react';
 import { LayoutResult, UploadedImage } from '../shared/types';
+import { MAX_PREVIEW_PIXELS } from '../shared/constants';
 import { drawRotatedImage } from '../lib/draw-rotated';
 import { loadImage } from '../lib/image-cache';
 import { drawGapRulers, getSrcCropRect } from '../lib/canvas-utils';
@@ -21,6 +22,16 @@ interface UseCanvasRendererOptions {
   isDragging: boolean;
   nearestGaps: (GapInfo & { cell: import('../shared/types').LayoutCell })[];
   dpi: number;
+}
+
+/**
+ * Clamp canvas dimensions to fit within the pixel budget, preserving aspect ratio.
+ */
+function clampCanvasSize(w: number, h: number): { w: number; h: number; scale: number } {
+  const pixels = w * h;
+  if (pixels <= MAX_PREVIEW_PIXELS) return { w, h, scale: 1 };
+  const scale = Math.sqrt(MAX_PREVIEW_PIXELS / pixels);
+  return { w: Math.round(w * scale), h: Math.round(h * scale), scale };
 }
 
 export function useCanvasRenderer({
@@ -44,13 +55,21 @@ export function useCanvasRenderer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = layout.canvasWidth;
-    canvas.height = layout.canvasHeight;
+    // Clamp canvas size to prevent OOM crash
+    const { w: canvasW, h: canvasH, scale } = clampCanvasSize(layout.canvasWidth, layout.canvasHeight);
+
+    canvas.width = canvasW;
+    canvas.height = canvasH;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (backgroundColor) {
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Apply scaling so layout coordinates still work correctly
+    if (scale < 1) {
+      ctx.scale(scale, scale);
     }
 
     let cancelled = false;

@@ -1,6 +1,12 @@
 /**
  * Image loading and processing utilities.
  * Pure functions for loading PNG images, computing trim bounds, and generating thumbnails.
+ *
+ * Memory strategy for large images:
+ * - Imported images are NEVER downscaled — full resolution is preserved for print quality.
+ * - computeTrimBounds uses a two-phase approach (coarse + fine ROI) to avoid creating
+ *   full-size canvases during trim detection, saving ~1GB RAM for large images.
+ * - Only thumbnails (≤200px) are downscaled — these are for UI display only.
  */
 
 import { MAX_THUMB_SIZE, MAX_IMAGE_DIMENSION } from '../shared/constants';
@@ -66,12 +72,106 @@ async function readPngDpi(file: File): Promise<number | null> {
 
 /**
  * Scan image alpha channel to find the tight bounding box of non-transparent content.
- * Uses row-by-row scanning to limit memory: only one row of ImageData is allocated
- * at a time, so even a 16384×16384 image uses at most ~256KB per scan pass.
+ * Uses a two-phase approach for large images to avoid OOM:
+ *   Phase 1: Coarse scan on a downscaled version (≤1024px) to find approximate bounds
+ *   Phase 2: Fine scan only on the ROI (region of interest) of the full image
+ * For images ≤4M pixels (≈2048×2048), does direct full scan one row at a time.
+ *
+ * IMPORTANT: This does NOT modify or downscale the original image.
+ * It only creates temporary small canvases for detection purposes.
  */
 export function computeTrimBounds(img: HTMLImageElement): { x: number; y: number; w: number; h: number } {
+  const { width, height } = img;
+
+  // For small images, do a direct row-by-row scan (no downscale needed)
+  if (width * height <= 2048 * 2048) {
+    return computeTrimBoundsDirect(img);
+  }
+
+  // Phase 1: Coarse scan on downscaled image (max 1024px — uses ~4MB RAM max)
+  const maxCoarseDim = 1024;
+  const scale = Math.min(maxCoarseDim / width, maxCoarseDim / height);
+  const cw = Math.round(width * scale);
+  const ch = Math.round(height * scale);
+
+  const coarseCanvas = document.createElement('canvas');
+  coarseCanvas.width = cw;
+  coarseCanvas.height = ch;
+  const coarseCtx = coarseCanvas.getContext('2d');
+  if (!coarseCtx) return computeTrimBoundsDirect(img);
+
+  coarseCtx.drawImage(img, 0, 0, cw, ch);
+
+  let coarseMinX = cw, coarseMinY = ch, coarseMaxX = 0, coarseMaxY = 0;
+  let hasContent = false;
+
+  for (let y = 0; y < ch; y++) {
+    const rowData = coarseCtx.getImageData(0, y, cw, 1);
+    const { data } = rowData;
+    for (let x = 0; x < cw; x++) {
+      if (data[x * 4 + 3] > 0) {
+        hasContent = true;
+        if (x < coarseMinX) coarseMinX = x;
+        if (x > coarseMaxX) coarseMaxX = x;
+        if (y < coarseMinY) coarseMinY = y;
+        if (y > coarseMaxY) coarseMaxY = y;
+      }
+    }
+  }
+
+  if (!hasContent) return { x: 0, y: 0, w: width, h: height };
+
+  // Map coarse bounds back to original coordinates with 2px margin
+  const margin = Math.ceil(2 / scale);
+  const roiX = Math.max(0, Math.floor(coarseMinX / scale) - margin);
+  const roiY = Math.max(0, Math.floor(coarseMinY / scale) - margin);
+  const roiR = Math.min(width, Math.ceil(coarseMaxX / scale) + margin + 1);
+  const roiB = Math.min(height, Math.ceil(coarseMaxY / scale) + margin + 1);
+  const roiW = roiR - roiX;
+  const roiH = roiB - roiY;
+
+  // Phase 2: Fine scan only on the ROI — much smaller than full image
+  const roiCanvas = document.createElement('canvas');
+  roiCanvas.width = roiW;
+  roiCanvas.height = roiH;
+  const roiCtx = roiCanvas.getContext('2d');
+  if (!roiCtx) return computeTrimBoundsDirect(img);
+
+  roiCtx.drawImage(img, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+
+  let minX = roiW, minY = roiH, maxX = 0, maxY = 0;
+  let fineHasContent = false;
+
+  for (let y = 0; y < roiH; y++) {
+    const rowData = roiCtx.getImageData(0, y, roiW, 1);
+    const { data } = rowData;
+    for (let x = 0; x < roiW; x++) {
+      if (data[x * 4 + 3] > 0) {
+        fineHasContent = true;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!fineHasContent) return { x: 0, y: 0, w: width, h: height };
+
+  return {
+    x: roiX + minX,
+    y: roiY + minY,
+    w: maxX - minX + 1,
+    h: maxY - minY + 1,
+  };
+}
+
+/**
+ * Direct row-by-row trim bound computation for small images.
+ * Only one row of ImageData is allocated at a time.
+ */
+function computeTrimBoundsDirect(img: HTMLImageElement): { x: number; y: number; w: number; h: number } {
   const canvas = document.createElement('canvas');
-  // Use full image size for drawing, but scan one row at a time
   canvas.width = img.width;
   canvas.height = img.height;
   const ctx = canvas.getContext('2d');
@@ -84,7 +184,6 @@ export function computeTrimBounds(img: HTMLImageElement): { x: number; y: number
   let minX = width, minY = height, maxX = 0, maxY = 0;
   let hasContent = false;
 
-  // Scan one row at a time to avoid allocating the full ImageData buffer
   for (let y = 0; y < height; y++) {
     const rowData = ctx.getImageData(0, y, width, 1);
     const { data } = rowData;
@@ -171,11 +270,14 @@ export function loadImageInfo(file: File): Promise<UploadedImage> {
     const img = new Image();
 
     img.onload = async () => {
+      // Hard dimension limit — canvas API cannot handle images beyond this
       if (img.width > MAX_IMAGE_DIMENSION || img.height > MAX_IMAGE_DIMENSION) {
         URL.revokeObjectURL(objectUrl);
         reject(new Error(`图片尺寸过大 (${img.width}×${img.height})，最大支持 ${MAX_IMAGE_DIMENSION}px`));
         return;
       }
+
+      // Process at FULL resolution — no downscaling for print quality
       const result = processLoadedImage(img, file, objectUrl);
 
       // Read PNG pHYs chunk to detect the image's intended physical dimensions
