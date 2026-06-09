@@ -18,12 +18,6 @@ jobs:
           - platform: windows-2025
             args: ''
             rust-targets: ''
-          - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-            rust-targets: 'aarch64-apple-darwin'
-          - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
-            rust-targets: 'x86_64-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
 
@@ -70,6 +64,4 @@ jobs:
           name: ${{ matrix.platform }}-${{ matrix.args || 'default' }}-build
           path: |
             src-tauri/target/release/bundle/**
-            src-tauri/target/aarch64-apple-darwin/release/bundle/**
-            src-tauri/target/x86_64-apple-darwin/release/bundle/**
           if-no-files-found: warn
