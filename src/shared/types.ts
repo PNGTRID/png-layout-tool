@@ -54,6 +54,10 @@ export interface LayoutParams {
   backgroundColor: string | null;
   /** Vertical alignment mode within each row */
   alignMode: 'top' | 'center' | 'bottom';
+  /** Whether to show crop marks (裁切线) on export */
+  showCropMarks: boolean;
+  /** Bleed size in cm — adds bleed area around each image for print */
+  bleedCm: number;
 }
 
 /**

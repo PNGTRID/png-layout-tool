@@ -30,6 +30,8 @@ const DEFAULT_PARAMS: LayoutParams = {
   autoRotate: false,
   backgroundColor: null,
   alignMode: 'center',
+  showCropMarks: false,
+  bleedCm: 0,
 };
 
 // ─── Unit Conversion ───────────────────────────────────────────────

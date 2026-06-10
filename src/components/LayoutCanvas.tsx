@@ -4,7 +4,7 @@ import { findNearestGaps, pxToCm } from '../lib/canvas-utils';
 import { useCanvasZoom } from '../hooks/useCanvasZoom';
 import { useCanvasInteraction } from '../hooks/useCanvasInteraction';
 import { useCanvasRenderer } from '../hooks/useCanvasRenderer';
-import { RotateCw } from 'lucide-react';
+import { RotateCw, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 interface LayoutCanvasProps {
   layout: LayoutResult;
@@ -21,7 +21,7 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Zoom hook
-  const { containerRef, scale: effectiveScale, scaleReady, handleWheel } = useCanvasZoom(layout.canvasWidth, layout.canvasHeight);
+  const { containerRef, scale: effectiveScale, scaleReady, handleWheel, userZoom, zoomIn, zoomOut, zoomReset } = useCanvasZoom(layout.canvasWidth, layout.canvasHeight);
 
   // Interaction hook
   const {
@@ -64,6 +64,7 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
     nearestGaps,
     dpi: params.dpi,
     scaleReady,
+    showCropMarks: params.showCropMarks,
   });
 
   // Sync export canvas dimensions
@@ -81,6 +82,10 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip shortcuts when user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
       if ((e.key === 'r' || e.key === 'R') && selectedImageIdForRotate && onRotate) {
         e.preventDefault();
         onRotate(selectedImageIdForRotate);
@@ -143,6 +148,8 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
             <canvas
               ref={previewCanvasRef}
               className="block"
+              role="img"
+              aria-label="排版预览画布"
               style={{
                 width: displayWidth,
                 height: displayHeight,
@@ -205,6 +212,36 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
           拖拽移动位置 · 按 R 旋转 · Esc 取消 · Ctrl+滚轮缩放
         </div>
       )}
+
+      {/* Zoom controls — fixed bottom-right */}
+      <div className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg bg-white/95 shadow-lg border border-lt-border px-1 py-0.5">
+        <button
+          onClick={zoomOut}
+          disabled={userZoom <= 0.1}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-lt-sub transition-all hover:bg-lt-hover hover:text-lt-text disabled:opacity-30 disabled:cursor-not-allowed"
+          title="缩小"
+          aria-label="缩小"
+        >
+          <ZoomOut className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={zoomReset}
+          className="flex h-6 min-w-[44px] items-center justify-center rounded-md px-1 text-[10px] font-mono text-lt-sub transition-all hover:bg-lt-hover hover:text-lt-text"
+          title="重置缩放"
+          aria-label={`缩放比例 ${Math.round(effectiveScale * 100)}%，点击重置`}
+        >
+          {Math.round(effectiveScale * 100)}%
+        </button>
+        <button
+          onClick={zoomIn}
+          disabled={userZoom >= 2}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-lt-sub transition-all hover:bg-lt-hover hover:text-lt-text disabled:opacity-30 disabled:cursor-not-allowed"
+          title="放大"
+          aria-label="放大"
+        >
+          <ZoomIn className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

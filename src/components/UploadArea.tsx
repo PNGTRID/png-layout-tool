@@ -37,6 +37,7 @@ export function UploadArea({ onFilesSelected, isDragging }: UploadAreaProps) {
         accept=".png,.psd,image/png,image/vnd.adobe.photoshop"
         className="hidden"
         onChange={handleChange}
+        aria-label="上传图片文件"
       />
 
       {/* 图标 */}

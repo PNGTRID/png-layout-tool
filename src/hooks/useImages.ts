@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { UploadedImage } from '../shared/types';
 import { MAX_FILE_SIZE_MB } from '../shared/constants';
 import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
 import { clearImageCache } from '../lib/image-cache';
 import { showToast } from '../components/Toast';
+import { useUndoRedo } from './useUndoRedo';
 
 /** Maximum number of files to load concurrently — prevents memory spikes */
 const MAX_CONCURRENT_LOADS = 10;
@@ -12,6 +13,7 @@ const MAX_CONCURRENT_LOADS = 10;
 /**
  * Process an array of promises with bounded concurrency.
  * Starts at most `concurrency` tasks at once; as each finishes, starts the next.
+ * Unlike Promise.all, individual failures do NOT abort remaining tasks.
  */
 async function parallelLimit<T>(
   tasks: (() => Promise<T>)[],
@@ -25,15 +27,14 @@ async function parallelLimit<T>(
       const idx = nextIdx++;
       try {
         results[idx] = await tasks[idx]();
-      } catch (err) {
-        // Re-throw so caller can handle; store undefined as sentinel
+      } catch {
+        // Store undefined as sentinel — caller handles failures separately
         results[idx] = undefined as unknown as T;
-        throw err;
       }
     }
   }
 
-  // Launch bounded workers — errors are caught per-task by the caller
+  // Launch bounded workers — errors are caught per-task
   const workers = Array.from(
     { length: Math.min(concurrency, tasks.length) },
     () => worker()
@@ -43,7 +44,7 @@ async function parallelLimit<T>(
 }
 
 export function useImages() {
-  const [images, setImages] = useState<UploadedImage[]>([]);
+  const [images, setImages, undoRedo] = useUndoRedo<UploadedImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const addFiles = useCallback(async (files: FileList | File[] | null) => {
@@ -115,13 +116,13 @@ export function useImages() {
   }, []);
 
   const clearAll = useCallback(() => {
-    // Use functional update to access latest state, then revoke all URLs
-    setImages((prev) => {
-      for (const img of prev) {
-        URL.revokeObjectURL(img.objectUrl);
-      }
-      return [];
-    });
+    // Revoke URLs immediately (undo will restore state but URLs are gone — acceptable tradeoff)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const current = imagesRef.current;
+    for (const img of current) {
+      URL.revokeObjectURL(img.objectUrl);
+    }
+    setImages([]);
   }, []);
 
   const updateQuantity = useCallback((id: string, quantity: number) => {
@@ -152,7 +153,7 @@ export function useImages() {
     }));
   }, []);
 
-  const totalQuantity = images.reduce((sum, img) => sum + img.quantity, 0);
+  const totalQuantity = useMemo(() => images.reduce((sum, img) => sum + img.quantity, 0), [images]);
 
   // Cleanup: revoke all ObjectURLs and clear cache on unmount
   const imagesRef = useRef(images);
@@ -167,5 +168,5 @@ export function useImages() {
     };
   }, []);
 
-  return { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity };
+  return { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo };
 }

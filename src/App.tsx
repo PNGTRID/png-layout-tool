@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { Settings, ImageIcon } from 'lucide-react';
+import { Settings, ImageIcon, Undo2, Redo2 } from 'lucide-react';
 import type { UploadedImage } from './shared/types';
 import { useImages } from './hooks/useImages';
 import { useLayout } from './hooks/useLayout';
@@ -29,7 +29,7 @@ function friendlyErrorMessage(err: unknown, context: string): string {
 }
 
 function App() {
-  const { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity } = useImages();
+  const { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages();
   const { params, layout, warnings, updateParam, relayout, updatePosition } = useLayout(images);
   const { isDragging } = useDragDrop({ onFilesDropped: addFiles });
   const updater = useAppUpdater();
@@ -51,6 +51,25 @@ function App() {
     }, 3000);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Undo/Redo keyboard shortcuts (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (undoRedo.canUndo) undoRedo.undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        if (undoRedo.canRedo) undoRedo.redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoRedo]);
 
   // Shared progress callback for exports
   const onExportProgress: ExportProgressCallback = useCallback((phase, current, total) => {
@@ -74,9 +93,12 @@ function App() {
     const t0 = performance.now();
     try {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas) {
+        showToast('error', '导出失败：画布未就绪，请重试');
+        return;
+      }
 
-      await renderToCanvas(canvas, layout, images, params.backgroundColor, onExportProgress);
+      await renderToCanvas(canvas, layout, images, params.backgroundColor, onExportProgress, params.showCropMarks, params.dpi);
 
       const result = await platformAPI.showSaveDialog({
         defaultPath: 'layout.png',
@@ -84,11 +106,10 @@ function App() {
       });
 
       if (!result) {
-        setIsExporting(false);
         return;
       }
 
-      await exportPNG(canvas, result, onExportProgress);
+      await exportPNG(canvas, result, params.dpi, onExportProgress);
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       showToast('success', `PNG 已导出: ${result.split('/').pop() || result.split('\\').pop()} (${elapsed}s)`);
     } catch (err) {
@@ -98,7 +119,7 @@ function App() {
       setIsExporting(false);
       setExportProgress(null);
     }
-  }, [images, layout, params.backgroundColor, onExportProgress]);
+  }, [images, layout, params.backgroundColor, params.dpi, params.showCropMarks, onExportProgress]);
 
   const handleExportPSD = useCallback(async () => {
     if (images.length === 0 || layout.cells.length === 0) return;
@@ -111,7 +132,6 @@ function App() {
       });
 
       if (!result) {
-        setIsExporting(false);
         return;
       }
 
@@ -192,6 +212,10 @@ function App() {
             showToast('info', '当前已是最新版本');
           }
         }}
+        canUndo={undoRedo.canUndo}
+        canRedo={undoRedo.canRedo}
+        onUndo={undoRedo.undo}
+        onRedo={undoRedo.redo}
       />
 
       {/* Main Content — three columns */}

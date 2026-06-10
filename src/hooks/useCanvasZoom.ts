@@ -1,5 +1,5 @@
 /**
- * Canvas zoom hook — manages scale-to-fit and user zoom (Ctrl+scroll).
+ * Canvas zoom hook — manages scale-to-fit and user zoom (Ctrl+scroll + buttons).
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -43,7 +43,19 @@ export function useCanvasZoom(canvasWidth: number, canvasHeight: number) {
     }
   }, []);
 
+  const zoomIn = useCallback(() => {
+    setUserZoom(prev => Math.min(ZOOM_MAX, +(prev + ZOOM_STEP).toFixed(1)));
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setUserZoom(prev => Math.max(ZOOM_MIN, +(prev - ZOOM_STEP).toFixed(1)));
+  }, []);
+
+  const zoomReset = useCallback(() => {
+    setUserZoom(1);
+  }, []);
+
   const effectiveScale = scale * userZoom;
 
-  return { containerRef, scale: effectiveScale, scaleReady, handleWheel };
+  return { containerRef, scale: effectiveScale, scaleReady, handleWheel, userZoom, zoomIn, zoomOut, zoomReset };
 }

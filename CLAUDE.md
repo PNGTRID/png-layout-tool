@@ -21,14 +21,17 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 - 算法：MaxRects BSSF（Best Short Side Fit）矩形装箱
 - 6 种排序策略并行计算：面积 / 最长边 / 宽度 / 高度 / 周长 / 宽高比
 - 后处理 `compactCells`：sweep-line O(n·k) 垂直压缩
+- 后处理 `alignRows`：行内垂直对齐（top/center/bottom），通过 `LayoutParams.alignMode` 控制
 - 每次调用完整重算，不做增量；结果通过 `useLayout` 缓存
 - 自动旋转（90° CW）可选，在 `LayoutParams.autoRotate` 控制
 
 ### 导出管线
 
-- **PNG**（export-png.ts）：Canvas `toBlob` → `platformAPI.writeFile`，支持进度回调
+- **PNG**（export-png.ts）：Canvas `toBlob` → pHYs DPI 注入（CRC32） → `platformAPI.writeFile`，支持进度回调和裁切线
 - **PSD**（export-psd.ts → psd-writer.ts）：RGBA→CMYK（cmyk.ts）→ PackBits RLE（rle.ts）→ 大端序写入（binary-writer.ts）→ PSD 文件结构
-- PSD 图层名截断至 255 字节（格式规范）
+- PSD 分辨率资源 #1005 使用用户设定的 DPI（16.16 定点格式）
+- PSD 图层名：ASCII Pascal string + luni（Unicode UTF-16BE）双写，保留中文图层名
+- 裁切线（crop-marks.ts）：四角标记线，偏移内容边缘 0.3cm，线长 0.5cm
 
 ### 自动更新（hooks/useAppUpdater.ts）
 
@@ -42,35 +45,36 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 
 | 组件 | 职责 |
 |------|------|
-| LayoutCanvas | 排版预览画布（选中/拖拽/缩放/距离标注） |
-| Toolbar | 顶部工具栏（导出/重排/更新） |
-| ControlPanel | 参数面板（间距/DPI/画布/对齐） |
-| ImageList | 图片列表（删除/排序/数量/尺寸） |
-| UploadArea | 拖拽上传区域 |
-| Toast | 全局通知（4s 自动消失，最多 5 条） |
-| UpdateDialog | 自动更新对话框 |
+| LayoutCanvas | 排版预览画布（选中/拖拽/缩放/距离标注/裁切线/缩放控件） |
+| Toolbar | 顶部工具栏（撤销/重做/导出/重排/更新） |
+| ControlPanel | 参数面板（间距/DPI/画布/对齐/裁切线/出血） |
+| ImageList | 图片列表（删除/排序/数量/尺寸，ImageCard 用 React.memo 优化） |
+| UploadArea | 拖拽上传区域（aria-label 支持） |
+| Toast | 全局通知（4s 自动消失，最多 5 条，aria-live） |
+| UpdateDialog | 自动更新对话框（role="dialog", aria-modal） |
 | ErrorBoundary | 错误边界 |
 
 ### src/hooks/
 
 | Hook | 职责 |
 |------|------|
-| useImages | 图片管理（上传/删除/数量/旋转），管理 UploadedImage[] |
+| useImages | 图片管理（上传/删除/数量/旋转），集成 useUndoRedo 撤销历史 |
 | useLayout | 排版计算与缓存，参数不变不重算 |
 | useDragDrop | 全局拖拽处理 |
-| useCanvasInteraction | 画布交互（选中/拖拽移动） |
-| useCanvasRenderer | 画布渲染（预览/标尺/标注） |
-| useCanvasZoom | 画布缩放（0.1x - 2.0x） |
+| useCanvasInteraction | 画布交互（选中/拖拽移动，3px 死区） |
+| useCanvasRenderer | 画布渲染（预览/标尺/标注/裁切线） |
+| useCanvasZoom | 画布缩放（0.1x - 2.0x，zoomIn/zoomOut/zoomReset） |
 | useAppUpdater | 自动更新逻辑 |
+| useUndoRedo | 通用撤销/重做（50 步历史栈，Ctrl+Z/Y 快捷键） |
 
 ### src/lib/
 
 | 模块 | 职责 |
 |------|------|
-| layout-engine | 排版核心（MaxRects BSSF × 6 策略） |
-| export-png / export-psd | PNG/PSD 导出入口 |
-| psd-writer | PSD 文件结构组装 |
-| psd-loader | PSD 图层解析（ag-psd） |
+| layout-engine | 排版核心（MaxRects BSSF × 6 策略 + compactCells + alignRows） |
+| export-png / export-psd | PNG（含 pHYs DPI）/ PSD 导出入口 |
+| psd-writer | PSD 文件结构组装（DPI 资源 + luni Unicode 图层名） |
+| psd-loader | PSD 图层解析（ag-psd，支持嵌套图层组） |
 | cmyk | RGBA → CMYK(A) 颜色转换 |
 | rle | PackBits RLE 压缩 |
 | binary-writer | 大端序二进制写入器 |
@@ -79,6 +83,7 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 | draw-rotated | 带旋转的 Canvas 绘制 |
 | canvas-utils | 命中测试/单位转换/标尺绘制 |
 | gap-ruler | 距离标注线计算与渲染 |
+| crop-marks | 裁切线（四角标记线，偏移 0.3cm + 线长 0.5cm） |
 
 ## 编码规范
 

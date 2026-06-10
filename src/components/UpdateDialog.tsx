@@ -25,7 +25,12 @@ export function UpdateDialog({
   const isActive = downloading || installing;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="update-dialog-title"
+    >
       <div className="relative w-[420px] rounded-2xl bg-white p-6 shadow-2xl border border-lt-border">
         {/* Close button */}
         {canClose && (
@@ -43,7 +48,7 @@ export function UpdateDialog({
             <Download className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-lt-text">
+            <h3 id="update-dialog-title" className="text-base font-semibold text-lt-text">
               发现新版本
             </h3>
             <p className="text-xs text-lt-muted">v{version}</p>
@@ -67,7 +72,14 @@ export function UpdateDialog({
               </span>
               <span className="text-lt-muted">{downloadProgress}%</span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden"
+              role="progressbar"
+              aria-valuenow={downloadProgress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="下载进度"
+            >
               <div
                 className="h-full rounded-full bg-accent-500 transition-all duration-300"
                 style={{ width: `${downloadProgress}%` }}
