@@ -1,5 +1,5 @@
 import type { LayoutParams } from '../shared/types';
-import { Square, Ruler, Maximize, Columns, RotateCw } from 'lucide-react';
+import { Square, Ruler, Maximize, Columns, RotateCw, AlignStartVertical, AlignCenterVertical, AlignEndVertical } from 'lucide-react';
 
 interface ControlPanelProps {
   params: LayoutParams;
@@ -157,6 +157,10 @@ export function ControlPanel({ params, onUpdateParam, imageCount }: ControlPanel
           value={params.gap}
           onChange={(e) => onUpdateParam('gap', Number(e.target.value))}
           className="custom-slider w-full"
+          aria-label="图片间距"
+          aria-valuenow={params.gap}
+          aria-valuemin={0}
+          aria-valuemax={5}
         />
       </div>
 
@@ -173,6 +177,36 @@ export function ControlPanel({ params, onUpdateParam, imageCount }: ControlPanel
         <RotateCw className="h-3.5 w-3.5 text-lt-sub" />
         <span className="text-xs text-lt-sub">自动旋转（竖图横排）</span>
       </label>
+
+      <hr className="border-lt-border" />
+
+      {/* Row alignment */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-1.5 text-xs font-medium text-lt-sub">
+          行对齐
+        </label>
+        <div className="flex items-center gap-1">
+          {([
+            { value: 'top' as const, icon: <AlignStartVertical className="h-3.5 w-3.5" />, label: '顶部对齐' },
+            { value: 'center' as const, icon: <AlignCenterVertical className="h-3.5 w-3.5" />, label: '居中对齐' },
+            { value: 'bottom' as const, icon: <AlignEndVertical className="h-3.5 w-3.5" />, label: '底部对齐' },
+          ]).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => onUpdateParam('alignMode', opt.value)}
+              className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] transition-all ${
+                params.alignMode === opt.value
+                  ? 'border-accent-400 bg-accent-50 text-accent-600 font-medium'
+                  : 'border-lt-border bg-white text-lt-sub hover:bg-lt-hover'
+              }`}
+              title={opt.label}
+              aria-label={opt.label}
+            >
+              {opt.icon}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <hr className="border-lt-border" />
 
@@ -209,12 +243,56 @@ export function ControlPanel({ params, onUpdateParam, imageCount }: ControlPanel
           value={params.dpi}
           onChange={(e) => onUpdateParam('dpi', Number(e.target.value))}
           className="custom-slider w-full"
+          aria-label="DPI 分辨率"
+          aria-valuenow={params.dpi}
+          aria-valuemin={72}
+          aria-valuemax={600}
         />
         <div className="flex justify-between text-[10px] text-lt-dim">
           <span>72</span>
           <span>600</span>
         </div>
       </div>
+
+      <hr className="border-lt-border" />
+
+      {/* Crop marks toggle */}
+      <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-lt-border bg-white px-3 py-2.5 shadow-sm transition-all hover:bg-lt-hover">
+        <input
+          type="checkbox"
+          checked={params.showCropMarks}
+          onChange={(e) => onUpdateParam('showCropMarks', e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-lt-border text-accent-500 focus:ring-accent-500"
+        />
+        <span className="text-xs text-lt-sub">裁切线（印刷标记）</span>
+      </label>
+
+      {/* Bleed size */}
+      {params.showCropMarks && (
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs text-lt-sub shrink-0">
+            出血
+          </label>
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.1}
+              value={params.bleedCm}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                onUpdateParam('bleedCm', isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
+              }}
+              className="w-[72px] rounded-md border border-lt-border bg-white px-2 py-1 text-right text-xs
+                         font-mono text-accent-600 shadow-sm
+                         focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500/20
+                         transition-all"
+            />
+            <span className="text-[10px] text-lt-muted w-5">cm</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

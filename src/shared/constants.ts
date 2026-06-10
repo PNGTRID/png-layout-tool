@@ -101,6 +101,22 @@ export const COLOR_GAP_RULER = '#ef4444';
 /** Gap ruler text color (white) */
 export const COLOR_GAP_RULER_TEXT = '#ffffff';
 
+// ─── Crop marks & bleed ─────────────────────────────────────────────
+/** Crop mark line length in cm */
+export const CROP_MARK_LENGTH_CM = 0.5;
+
+/** Crop mark line offset from content edge in cm */
+export const CROP_MARK_OFFSET_CM = 0.3;
+
+/** Crop mark line stroke width in px */
+export const CROP_MARK_STROKE_WIDTH = 1;
+
+/** Maximum bleed size (cm) */
+export const MAX_BLEED_CM = 1;
+
+/** Default bleed size (cm) */
+export const DEFAULT_BLEED_CM = 0;
+
 // ─── Toast ─────────────────────────────────────────────────────────
 /** Auto-dismiss timeout for toast notifications (ms) */
 export const TOAST_AUTO_DISMISS_MS = 4000;

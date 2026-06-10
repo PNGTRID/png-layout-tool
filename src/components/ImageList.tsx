@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { X, ImageIcon, Minus, Plus, RotateCcw, CheckSquare, Square, Check } from 'lucide-react';
 import type { UploadedImage } from '../shared/types';
 
@@ -17,7 +17,7 @@ function naturalCmSize(trimPx: number, dpi: number): string {
   return (trimPx * 2.54 / dpi).toFixed(2);
 }
 
-function ImageCard({
+const ImageCard = memo(function ImageCard({
   img, dpi, selected, onToggleSelect, onRemove, onUpdateQuantity, onUpdateTargetSize, onRotate,
 }: {
   img: UploadedImage; dpi: number; selected: boolean;
@@ -64,6 +64,9 @@ function ImageCard({
         <button
           onClick={(e) => onToggleSelect(img.id, e.shiftKey)}
           className="mt-0.5 flex-shrink-0 text-accent-500 hover:text-accent-600 transition-colors"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={selected ? `取消选择 ${img.name}` : `选择 ${img.name}`}
           title={selected ? '取消选择' : '选择 (Shift多选)'}
         >
           {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-lt-dim" />}
@@ -173,7 +176,7 @@ function ImageCard({
       </div>
     </div>
   );
-}
+});
 
 export function ImageList({ images, onRemove, onUpdateQuantity, onBatchUpdateQuantity, onUpdateTargetSize, onRotate, dpi, totalQuantity }: ImageListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -234,7 +237,7 @@ export function ImageList({ images, onRemove, onUpdateQuantity, onBatchUpdateQua
     <div className="flex flex-col gap-2">
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
-        <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-accent-300 bg-accent-50 px-3 py-2 shadow-sm">
+        <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-accent-300 bg-accent-50 px-3 py-2 shadow-sm" role="toolbar" aria-label="批量操作工具栏">
           <span className="text-xs font-medium text-accent-700">已选 {selectedIds.size} 项</span>
           <div className="h-4 w-px bg-accent-200" />
           <span className="text-[11px] text-accent-600">数量</span>

@@ -9,6 +9,7 @@ import { MAX_PREVIEW_PIXELS, COLOR_ERROR_FILL, COLOR_HOVER_STROKE, COLOR_SELECTI
 import { drawRotatedImage } from '../lib/draw-rotated';
 import { loadImage } from '../lib/image-cache';
 import { drawGapRulers, getSrcCropRect } from '../lib/canvas-utils';
+import { drawCropMarks } from '../lib/crop-marks';
 import { showToast } from '../components/Toast';
 import type { GapInfo } from '../lib/gap-ruler';
 
@@ -23,6 +24,7 @@ interface UseCanvasRendererOptions {
   nearestGaps: (GapInfo & { cell: import('../shared/types').LayoutCell })[];
   dpi: number;
   scaleReady: boolean;
+  showCropMarks: boolean;
 }
 
 /**
@@ -46,6 +48,7 @@ export function useCanvasRenderer({
   nearestGaps,
   dpi,
   scaleReady,
+  showCropMarks,
 }: UseCanvasRendererOptions) {
   // Stable serialization key for highlight state
   const highlightKey = `${selectedCellId}|${hoveredCellId}|${isDragging}`;
@@ -139,8 +142,13 @@ export function useCanvasRenderer({
       if (!cancelled) {
         drawGapRulers(ctx, nearestGaps, layout.canvasWidth, dpi);
       }
+
+      // Crop marks (裁切线)
+      if (!cancelled && showCropMarks) {
+        drawCropMarks(ctx, layout.cells, dpi);
+      }
     })();
 
     return () => { cancelled = true; };
-  }, [canvasRef, layout, images, backgroundColor, highlightKey, nearestGaps, dpi, selectedCellId, hoveredCellId, isDragging, scaleReady]);
+  }, [canvasRef, layout, images, backgroundColor, highlightKey, nearestGaps, dpi, selectedCellId, hoveredCellId, isDragging, scaleReady, showCropMarks]);
 }

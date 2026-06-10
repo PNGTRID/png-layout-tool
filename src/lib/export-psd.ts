@@ -14,6 +14,9 @@ import { downloadBlob } from './download';
 
 export type ExportProgressCallback = (phase: string, current: number, total: number) => void;
 
+/** Maximum number of layer render failures before aborting the entire export */
+const MAX_LAYER_FAILURES = 5;
+
 export interface ExportAbortSignal {
   aborted: boolean;
 }
@@ -34,6 +37,7 @@ export async function exportPSD(
 
   // Build image lookup map for O(1) access instead of O(n) find()
   const imageMap = new Map(images.map(img => [img.id, img]));
+  const failedLayers: string[] = [];
 
   // Phase 1: Render each cell to CMYK layer (sequential to avoid memory spikes)
   for (let idx = 0; idx < layout.cells.length; idx++) {
@@ -46,42 +50,50 @@ export async function exportPSD(
     const imgData = imageMap.get(cell.imageId);
     if (!imgData) continue;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = cell.drawWidth;
-    canvas.height = cell.drawHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) continue;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = cell.drawWidth;
+      canvas.height = cell.drawHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
 
-    const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
-    const img = await loadImage(imgData.objectUrl);
+      const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
+      const img = await loadImage(imgData.objectUrl);
 
-    // Check abort after async operation
-    if (abortSignal?.aborted) return;
+      // Check abort after async operation
+      if (abortSignal?.aborted) return;
 
-    drawRotatedImage(
-      ctx, img,
-      0, 0, cell.drawWidth, cell.drawHeight,
-      trimX, trimY, trimW, trimH,
-      imgData.rotation, cell.rotated
-    );
+      drawRotatedImage(
+        ctx, img,
+        0, 0, cell.drawWidth, cell.drawHeight,
+        trimX, trimY, trimW, trimH,
+        imgData.rotation, cell.rotated
+      );
 
-    const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const cmyka = rgbaToCmyka(rgba.data, canvas.width, canvas.height);
-    const hasAlpha = rgba.data.some((v, i) => i % 4 === 3 && v < 255);
+      const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const cmyka = rgbaToCmyka(rgba.data, canvas.width, canvas.height);
+      const hasAlpha = rgba.data.some((v, i) => i % 4 === 3 && v < 255);
 
-    layers.push({
-      name: imgData.name.replace(/\.[^.]+$/, ''),
-      cmyka,
-      width: canvas.width,
-      height: canvas.height,
-      left: cell.x,
-      top: cell.y,
-      hasAlpha,
-    });
+      layers.push({
+        name: imgData.name.replace(/\.[^.]+$/, ''),
+        cmyka,
+        width: canvas.width,
+        height: canvas.height,
+        left: cell.x,
+        top: cell.y,
+        hasAlpha,
+      });
 
-    // Release canvas + ImageData memory promptly
-    canvas.width = 0;
-    canvas.height = 0;
+      // Release canvas + ImageData memory promptly
+      canvas.width = 0;
+      canvas.height = 0;
+    } catch (err) {
+      failedLayers.push(imgData.name);
+      console.error(`[export-psd] Layer render failed: ${imgData.name}`, err);
+      if (failedLayers.length >= MAX_LAYER_FAILURES) {
+        throw new Error(`PSD 导出失败：超过 ${MAX_LAYER_FAILURES} 个图层渲染出错（${failedLayers.slice(0, 3).join(', ')}...）`);
+      }
+    }
   }
 
   // Final abort check before expensive binary write
@@ -115,7 +127,7 @@ export async function exportPSD(
 
   // Phase 3: Write PSD binary
   onProgress?.('write', 0, 1);
-  const psdData = writeCmykPsd(layers, layout.canvasWidth, layout.canvasHeight, hasBackground);
+  const psdData = writeCmykPsd(layers, layout.canvasWidth, layout.canvasHeight, hasBackground, params.dpi);
 
   // Phase 4: Save to disk
   onProgress?.('save', 0, 1);

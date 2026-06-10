@@ -52,10 +52,20 @@ export class BinaryWriter {
   }
 
   /** Write a signed 16-bit big-endian integer */
-  i16(v: number): void { this.u16(v < 0 ? v + 0x10000 : v); }
+  i16(v: number): void {
+    if (v < -32768 || v > 32767) {
+      throw new RangeError(`[binary-writer] i16 overflow: ${v} (range -32768..32767)`);
+    }
+    this.u16(v < 0 ? v + 0x10000 : v);
+  }
 
   /** Write a signed 32-bit big-endian integer */
-  i32(v: number): void { this.u32(v < 0 ? v + 0x100000000 : v); }
+  i32(v: number): void {
+    if (v < -2147483648 || v > 2147483647) {
+      throw new RangeError(`[binary-writer] i32 overflow: ${v}`);
+    }
+    this.u32(v < 0 ? v + 0x100000000 : v);
+  }
 
   /** Write a raw byte array */
   bytes(arr: Uint8Array): void {

@@ -62,17 +62,27 @@ function writeColorModeData(w: BinaryWriter): void {
   w.u32(0);
 }
 
-/** §3. Image Resources — Resolution info resource #1005 */
-function writeImageResources(w: BinaryWriter): void {
+/**
+ * §3. Image Resources — Resolution info resource #1005
+ *
+ * PSD resolution is stored as fixed-point 16.16 bits per inch.
+ * For DPI D: integer part = D, fraction = (D % 1) * 65536.
+ * E.g. 300 DPI → 300.0 → hi=300, lo=0
+ */
+function writeImageResources(w: BinaryWriter, dpi: number): void {
   const resBuf = new BinaryWriter();
   resBuf.str('8BIM');
   resBuf.u16(1005);
   resBuf.u8(0); resBuf.u8(0);
   resBuf.u32(16);
-  resBuf.u16(72); resBuf.u16(0); // Horizontal resolution: 72 PPI
+  // Horizontal resolution: fixed-point 16.16
+  const hInt = Math.floor(dpi);
+  const hFrac = Math.round((dpi - hInt) * 65536);
+  resBuf.u16(hInt); resBuf.u16(hFrac);
   resBuf.u16(1);                  // Horizontal unit: 1 = PPI
   resBuf.u16(1);                  // Width unit: 1 = inches
-  resBuf.u16(72); resBuf.u16(0); // Vertical resolution: 72 PPI
+  // Vertical resolution: same as horizontal
+  resBuf.u16(hInt); resBuf.u16(hFrac);
   resBuf.u16(1);                  // Vertical unit: 1 = PPI
   resBuf.u16(1);                  // Height unit: 1 = inches
   const resData = resBuf.toUint8Array();
@@ -125,6 +135,29 @@ function writeLayerAndMaskInfo(w: BinaryWriter, layers: CmykLayer[]): void {
   w.patch32(lmStart, w.pos - lmStart - 4);
 }
 
+/**
+ * Build 'luni' (Unicode layer name) resource data for a layer.
+ * PSD spec: resource ID 1005 → but for layer extra data we use the
+ * "luni" key (Photoshop 7.0+). Format: uint32 char-count + UTF-16BE chars + uint16(0).
+ */
+function buildLuniResource(name: string): Uint8Array {
+  // Encode as UTF-16BE with BOM
+  const buf = new BinaryWriter();
+  buf.str('8BIM');
+  buf.str('luni');
+  buf.u8(0); buf.u8(0); // Pascal string padding
+  // UTF-16BE characters + null terminator
+  const chars = name.length + 1; // +1 for null terminator
+  buf.u32(chars * 2); // resource data length in bytes
+  for (let i = 0; i < name.length; i++) {
+    buf.u16(name.charCodeAt(i));
+  }
+  buf.u16(0); // null terminator
+  // Pad to even length
+  if ((chars * 2) % 2 !== 0) buf.u8(0);
+  return buf.toUint8Array();
+}
+
 /** Write a single layer record (bounds, channels, blend mode, extra data) */
 function writeLayerRecord(w: BinaryWriter, layer: CmykLayer, chs: ChData[]): void {
   w.i32(layer.top);
@@ -146,18 +179,22 @@ function writeLayerRecord(w: BinaryWriter, layer: CmykLayer, chs: ChData[]): voi
   w.u8(0);   // Flags
   w.u8(0);   // Filler
 
-  // Extra data: layer mask (0) + blending ranges (0) + name
+  // Extra data: layer mask (0) + blending ranges (0) + name + luni
   const extraBuf = new BinaryWriter();
   extraBuf.u32(0); // Layer mask data length
   extraBuf.u32(0); // Layer blending ranges data length
 
-  // Pascal string name (padded to 4-byte boundary)
+  // Pascal string name (padded to 4-byte boundary) — ASCII fallback
   const safeName = sanitiseLayerName(layer.name);
   const nameBytes = new TextEncoder().encode(safeName);
   const nameTotal = ((1 + nameBytes.length) + 3) & ~3;
   extraBuf.u8(nameBytes.length);
   for (const b of nameBytes) extraBuf.u8(b);
   for (let p = 1 + nameBytes.length; p < nameTotal; p++) extraBuf.u8(0);
+
+  // Unicode layer name resource (luni) — preserves CJK characters
+  const luniData = buildLuniResource(layer.name);
+  extraBuf.bytes(luniData);
 
   const extraBytes = extraBuf.toUint8Array();
   w.u32(extraBytes.length);
@@ -187,7 +224,7 @@ function writeCompositeImageData(
     tmpCanvas.height = layer.height;
     const tmpCtx = tmpCanvas.getContext('2d');
     if (!tmpCtx) continue;
-    tmpCtx.putImageData(new ImageData(rgba, layer.width, layer.height), 0, 0);
+    tmpCtx.putImageData(new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, layer.width, layer.height), 0, 0);
     compCtx.drawImage(tmpCanvas, layer.left, layer.top);
 
     // Release temp canvas memory promptly
@@ -257,14 +294,15 @@ export function writeCmykPsd(
   layers: CmykLayer[],
   canvasW: number,
   canvasH: number,
-  hasBackground: boolean
+  hasBackground: boolean,
+  dpi: number
 ): Uint8Array {
   const w = new BinaryWriter();
   const compositeHasAlpha = !hasBackground;
 
   writeFileHeader(w, canvasW, canvasH, compositeHasAlpha);
   writeColorModeData(w);
-  writeImageResources(w);
+  writeImageResources(w, dpi);
   writeLayerAndMaskInfo(w, layers);
   writeCompositeImageData(w, layers, canvasW, canvasH, compositeHasAlpha);
 
