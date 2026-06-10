@@ -22,7 +22,10 @@ export async function loadImage(objectUrl: string): Promise<HTMLImageElement> {
   img.src = objectUrl;
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
-    img.onerror = () => reject(new Error(`Failed to load image: ${objectUrl}`));
+    img.onerror = () => {
+      imageCache.delete(objectUrl);
+      reject(new Error(`Failed to load image: ${objectUrl}`));
+    };
   });
 
   // Evict oldest entries if cache is at capacity

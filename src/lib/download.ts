@@ -13,7 +13,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
     a.click();
     document.body.removeChild(a);
   } finally {
-    // Delay revocation to allow the browser to start the download
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Delay revocation to allow the browser to complete the download
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 }

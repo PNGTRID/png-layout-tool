@@ -12,9 +12,15 @@
 import { MAX_THUMB_SIZE, MAX_IMAGE_DIMENSION, TRIM_SMALL_IMAGE_PIXELS, TRIM_COARSE_MAX_DIM, MIN_VALID_DPI, MAX_VALID_DPI } from '../shared/constants';
 import type { UploadedImage } from '../shared/types';
 
-/** Generate a short unique ID */
+/** Monotonic counter for unique ID generation (avoids collision under concurrent loads) */
+let idCounter = 0;
+
+/** Generate a short unique ID with collision resistance */
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 9) + Date.now().toString(36).substring(0, 4);
+  const counter = idCounter++;
+  const random = Math.random().toString(36).substring(2, 8);
+  const timestamp = Date.now().toString(36);
+  return `${random}${timestamp}${counter.toString(36)}`;
 }
 
 /**

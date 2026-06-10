@@ -303,6 +303,56 @@ function compactCells(cells: LayoutCell[], gapPx: number): void {
   }
 }
 
+/**
+ * Align cells within each row according to the specified mode.
+ * A "row" is defined as cells whose vertical ranges overlap (y-overlap group).
+ * - 'top':    cells stay at row top (no adjustment needed after compactCells)
+ * - 'center': cells are vertically centered within the tallest cell in the row
+ * - 'bottom': cells are aligned to the bottom of the tallest cell in the row
+ */
+function alignRows(cells: LayoutCell[], gapPx: number, mode: 'top' | 'center' | 'bottom'): void {
+  if (mode === 'top' || cells.length <= 1) return;
+
+  // Sort by Y then X for row grouping
+  const sorted = [...cells].sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // Group cells into rows by vertical overlap
+  const rows: LayoutCell[][] = [];
+  for (const cell of sorted) {
+    let placed = false;
+    for (const row of rows) {
+      const rowTop = Math.min(...row.map(c => c.y));
+      const rowBottom = Math.max(...row.map(c => c.y + c.drawHeight));
+      const cellBottom = cell.y + cell.drawHeight;
+      if (cell.y < rowBottom + gapPx && cellBottom > rowTop - gapPx) {
+        row.push(cell);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      rows.push([cell]);
+    }
+  }
+
+  // Build O(1) lookup map from cellId to original cell
+  const cellMap = new Map(cells.map(c => [c.cellId, c]));
+
+  // Align cells within each row
+  for (const row of rows) {
+    if (row.length <= 1) continue;
+    const maxHeight = Math.max(...row.map(c => c.drawHeight));
+    for (const cell of row) {
+      if (cell.drawHeight >= maxHeight) continue;
+      const offset = mode === 'center'
+        ? Math.round((maxHeight - cell.drawHeight) / 2)
+        : Math.round(maxHeight - cell.drawHeight);
+      const original = cellMap.get(cell.cellId);
+      if (original) original.y += offset;
+    }
+  }
+}
+
 // ─── Public API ─────────────────────────────────────────────────────
 
 export interface LayoutWarning {
@@ -352,20 +402,20 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
     });
   }
 
-  // 2. Determine canvas width
-  let canvasWidthPx: number;
-  if (params.canvasWidthCm > 0) {
-    canvasWidthPx = cmToPx(params.canvasWidthCm, params.dpi);
-  } else {
-    canvasWidthPx = expanded.reduce((sum, { img }) => sum + img.trimWidth, 0) +
-      gapPx * Math.max(expanded.length - 1, 0);
-  }
-
-  // 3. Prepare items — use target dimensions if set
+  // 2. Prepare items — use target dimensions if set
   const items: PackItem[] = expanded.map(({ img, copyIndex }) => {
     const { w, h } = getEffectiveDimensions(img, params.dpi);
     return { img, copyIndex, w, h };
   });
+
+  // 3. Determine canvas width — must use effective dimensions, not raw trimWidth
+  let canvasWidthPx: number;
+  if (params.canvasWidthCm > 0) {
+    canvasWidthPx = cmToPx(params.canvasWidthCm, params.dpi);
+  } else {
+    canvasWidthPx = items.reduce((sum, item) => sum + item.w, 0) +
+      gapPx * Math.max(items.length - 1, 0);
+  }
 
   // Create local ID counter (avoids module-level mutable state)
   const idCounter: IdCounter = { value: 0 };
@@ -393,6 +443,7 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
     idCounter.value = 0;
     const cells = packOneStrategy(strategy.items, canvasWidthPx, gapPx, params.autoRotate, idCounter);
     compactCells(cells, gapPx);
+    alignRows(cells, gapPx, params.alignMode);
 
     // Use reduce to avoid Math.max(...array) stack overflow on large arrays
     const height = cells.reduce((max, c) => Math.max(max, c.y + c.drawHeight), 0);

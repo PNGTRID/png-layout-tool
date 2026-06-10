@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 // layoutVersionRef is no longer needed — using useState instead
-import { LayoutParams, LayoutResult, UploadedImage } from '../shared/types';
+import type { LayoutParams, LayoutResult, UploadedImage } from '../shared/types';
 import { calculateLayout, LayoutResultWithWarnings } from '../lib/layout-engine';
 
 const DEFAULT_PARAMS: LayoutParams = {
@@ -11,6 +11,8 @@ const DEFAULT_PARAMS: LayoutParams = {
   autoRotate: false,
   backgroundColor: null,
   alignMode: 'center',
+  showCropMarks: false,
+  bleedCm: 0,
 };
 
 /** Debounce delay (ms) for expensive layout recalculations */
@@ -34,7 +36,7 @@ export function useLayout(images: UploadedImage[]) {
     // Validate backgroundColor format (CSS hex color or null)
     if (key === 'backgroundColor' && value !== null) {
       const str = value as string;
-      if (!/^#[0-9a-fA-F]{3,8}$/.test(str)) {
+      if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(str)) {
         console.warn('[layout] Invalid backgroundColor rejected:', str);
         return;
       }

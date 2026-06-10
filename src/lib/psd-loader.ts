@@ -10,6 +10,9 @@ import { processLoadedImage } from './image-loader';
 /** Maximum PSD file size (MB) — PSDs require ~5x memory for parsing */
 const MAX_PSD_SIZE_MB = MAX_FILE_SIZE_MB * 0.5;
 
+/** Maximum recursion depth for nested layer groups */
+const MAX_LAYER_DEPTH = 10;
+
 // Lazy-initialize ag-psd canvas factory (avoids module-level side effects)
 let psdInitialized = false;
 
@@ -101,12 +104,44 @@ export async function loadPsdAsImages(file: File): Promise<UploadedImage[]> {
   }
 
   const results: UploadedImage[] = [];
-  for (const layer of psd.children) {
-    const layerCanvas = layer.canvas;
-    if (!layerCanvas || layerCanvas.width === 0 || layerCanvas.height === 0) continue;
 
-    const layerName = layer.name || `${file.name} - 图层 ${results.length + 1}`;
-    results.push(await layerCanvasToImage(layerCanvas, file, layerName));
+  /**
+   * Recursively collect layers from PSD tree, including nested groups.
+   * Group nodes are traversed but not themselves converted to images.
+   */
+  async function collectLayers(
+    children: Array<{ canvas?: HTMLCanvasElement; name?: string; children?: unknown[]; hidden?: boolean }>,
+    parentPrefix: string,
+    depth: number
+  ): Promise<void> {
+    if (depth >= MAX_LAYER_DEPTH) {
+      console.warn(`[psd-loader] Max layer depth (${MAX_LAYER_DEPTH}) reached, skipping nested groups`);
+      return;
+    }
+    for (const layer of children) {
+      // Group node: recurse into children
+      if ('children' in layer && Array.isArray(layer.children) && layer.children.length > 0) {
+        const groupPrefix = parentPrefix ? `${parentPrefix}/${layer.name || '组'}` : (layer.name || '组');
+        await collectLayers(layer.children as Array<{ canvas?: HTMLCanvasElement; name?: string; children?: unknown[]; hidden?: boolean }>, groupPrefix, depth + 1);
+        continue;
+      }
+
+      // Skip hidden layers
+      if ('hidden' in layer && layer.hidden) continue;
+
+      const layerCanvas = layer.canvas;
+      if (!layerCanvas || layerCanvas.width === 0 || layerCanvas.height === 0) continue;
+
+      const layerName = layer.name || `${file.name} - 图层 ${results.length + 1}`;
+      const displayName = parentPrefix ? `${parentPrefix}/${layerName}` : layerName;
+      results.push(await layerCanvasToImage(layerCanvas, file, displayName));
+    }
+  }
+
+  await collectLayers(psd.children as Array<{ canvas?: HTMLCanvasElement; name?: string; children?: unknown[]; hidden?: boolean }>, '', 0);
+
+  if (results.length === 0) {
+    throw new Error(`PSD 没有有效图层: ${file.name}`);
   }
 
   return results;

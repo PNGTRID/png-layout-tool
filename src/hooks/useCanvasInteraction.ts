@@ -3,8 +3,11 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { LayoutCell } from '../shared/types';
+import type { LayoutCell } from '../shared/types';
 import { hitTest } from '../lib/canvas-utils';
+
+/** Minimum movement (px in canvas space) before mouse-down becomes a drag */
+const DRAG_DEAD_ZONE = 3;
 
 interface UseCanvasInteractionOptions {
   cells: LayoutCell[];
@@ -34,6 +37,7 @@ export function useCanvasInteraction({
     startY: number;
     cellStartX: number;
     cellStartY: number;
+    moved: boolean;
   } | null>(null);
 
   const screenToCanvas = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -59,8 +63,8 @@ export function useCanvasInteraction({
         startY: pos.y,
         cellStartX: cell.x,
         cellStartY: cell.y,
+        moved: false,
       };
-      setIsDragging(true);
     } else {
       setSelectedCellId(null);
     }
@@ -72,9 +76,18 @@ export function useCanvasInteraction({
 
     const drag = dragRef.current;
     if (drag) {
-      const cell = cells.find(c => c.cellId === drag.cellId);
       const dx = pos.x - drag.startX;
       const dy = pos.y - drag.startY;
+
+      // Dead zone: only start dragging after minimum movement
+      if (!drag.moved && Math.sqrt(dx * dx + dy * dy) < DRAG_DEAD_ZONE) return;
+
+      if (!drag.moved) {
+        drag.moved = true;
+        setIsDragging(true);
+      }
+
+      const cell = cells.find(c => c.cellId === drag.cellId);
       const newX = Math.max(0, Math.min(canvasWidth - (cell?.drawWidth ?? 0), drag.cellStartX + dx));
       const newY = Math.max(0, Math.min(canvasHeight - (cell?.drawHeight ?? 0), drag.cellStartY + dy));
       onUpdatePosition?.(drag.cellId, newX, newY);
