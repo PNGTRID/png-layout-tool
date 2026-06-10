@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from 'react';
-import { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
+import type { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
 import { findNearestGaps, pxToCm } from '../lib/canvas-utils';
 import { useCanvasZoom } from '../hooks/useCanvasZoom';
 import { useCanvasInteraction } from '../hooks/useCanvasInteraction';

@@ -1,23 +1,11 @@
-import { LayoutResult, LayoutCell, UploadedImage } from '../shared/types';
+import type { LayoutResult, LayoutCell, UploadedImage } from '../shared/types';
+import { STRIP_HEIGHT, MAX_PREVIEW_PIXELS } from '../shared/constants';
 import { platformAPI } from '../shared/ipc';
 import { drawRotatedImage } from './draw-rotated';
 import { loadImage, clearImageCache } from './image-cache';
 import { getSrcCropRect } from './canvas-utils';
 import { downloadBlob } from './download';
 import type { ExportProgressCallback } from './export-psd';
-
-/**
- * Maximum height (px) per rendering strip.
- * A 4096px tall strip at full layout width keeps memory under ~250MB per strip
- * even for a 6732px-wide layout (6732 × 4096 × 4 = ~110MB RGBA).
- */
-const STRIP_HEIGHT = 4096;
-
-/**
- * Estimated safe pixel budget for a single canvas allocation.
- * ~100M pixels ≈ 400MB RGBA — safe for most WebView processes.
- */
-const SAFE_CANVAS_PIXELS = 100_000_000;
 
 /**
  * Check if a cell overlaps with a horizontal strip [stripY, stripY + stripH).
@@ -108,7 +96,7 @@ export async function renderToCanvas(
   clearImageCache();
 
   // --- Small layout: direct render (fast, simple) ---
-  if (totalPixels <= SAFE_CANVAS_PIXELS) {
+  if (totalPixels <= MAX_PREVIEW_PIXELS) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Failed to get 2d context');
 

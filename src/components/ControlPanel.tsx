@@ -1,4 +1,4 @@
-import { LayoutParams } from '../shared/types';
+import type { LayoutParams } from '../shared/types';
 import { Square, Ruler, Maximize, Columns, RotateCw } from 'lucide-react';
 
 interface ControlPanelProps {

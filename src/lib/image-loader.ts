@@ -9,7 +9,7 @@
  * - Only thumbnails (≤200px) are downscaled — these are for UI display only.
  */
 
-import { MAX_THUMB_SIZE, MAX_IMAGE_DIMENSION } from '../shared/constants';
+import { MAX_THUMB_SIZE, MAX_IMAGE_DIMENSION, TRIM_SMALL_IMAGE_PIXELS, TRIM_COARSE_MAX_DIM, MIN_VALID_DPI, MAX_VALID_DPI } from '../shared/constants';
 import type { UploadedImage } from '../shared/types';
 
 /** Generate a short unique ID */
@@ -84,13 +84,12 @@ export function computeTrimBounds(img: HTMLImageElement): { x: number; y: number
   const { width, height } = img;
 
   // For small images, do a direct row-by-row scan (no downscale needed)
-  if (width * height <= 2048 * 2048) {
+  if (width * height <= TRIM_SMALL_IMAGE_PIXELS) {
     return computeTrimBoundsDirect(img);
   }
 
-  // Phase 1: Coarse scan on downscaled image (max 1024px — uses ~4MB RAM max)
-  const maxCoarseDim = 1024;
-  const scale = Math.min(maxCoarseDim / width, maxCoarseDim / height);
+  // Phase 1: Coarse scan on downscaled image (uses ~4MB RAM max)
+  const scale = Math.min(TRIM_COARSE_MAX_DIM / width, TRIM_COARSE_MAX_DIM / height);
   const cw = Math.round(width * scale);
   const ch = Math.round(height * scale);
 
@@ -285,7 +284,7 @@ export function loadImageInfo(file: File): Promise<UploadedImage> {
       if (isPng) {
         const imageDpi = await readPngDpi(file);
         // Clamp DPI to a reasonable range (72–2400) to prevent absurd cm values
-        if (imageDpi && imageDpi >= 72 && imageDpi <= 2400) {
+        if (imageDpi && imageDpi >= MIN_VALID_DPI && imageDpi <= MAX_VALID_DPI) {
           const wCm = parseFloat((result.trimWidth * 2.54 / imageDpi).toFixed(2));
           const hCm = parseFloat((result.trimHeight * 2.54 / imageDpi).toFixed(2));
           // Only set target cm when the computed size is within a printable range

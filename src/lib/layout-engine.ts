@@ -1,4 +1,4 @@
-import { UploadedImage, LayoutParams, LayoutResult, LayoutCell } from '../shared/types';
+import type { UploadedImage, LayoutParams, LayoutResult, LayoutCell } from '../shared/types';
 import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS } from '../shared/constants';
 
 /** 将 cm 转换为像素（基于 DPI） */
@@ -314,6 +314,15 @@ export interface LayoutResultWithWarnings extends LayoutResult {
   warnings: LayoutWarning[];
 }
 
+/**
+ * Calculate the optimal layout for a set of images using MaxRects BSSF packing.
+ * Tries 6 sorting strategies in parallel and picks the result with the smallest canvas area.
+ * Applies vertical compression (compactCells) as post-processing.
+ *
+ * @param images - Array of uploaded images with quantity and rotation metadata
+ * @param params - Layout parameters (gap, DPI, canvas size, auto-rotate, alignment)
+ * @returns Layout result with canvas dimensions, placed cells, and any warnings
+ */
 export function calculateLayout(images: UploadedImage[], params: LayoutParams): LayoutResultWithWarnings {
   if (images.length === 0) {
     return { canvasWidth: 0, canvasHeight: 0, cells: [], warnings: [] };

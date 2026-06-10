@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ZOOM_STEP, ZOOM_MIN, ZOOM_MAX } from '../shared/constants';
+import { ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, CANVAS_PAD_X, CANVAS_PAD_Y } from '../shared/constants';
 
 export function useCanvasZoom(canvasWidth: number, canvasHeight: number) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,8 +22,8 @@ export function useCanvasZoom(canvasWidth: number, canvasHeight: number) {
     setUserZoom(1);
 
     const observer = new ResizeObserver(() => {
-      const pw = container.clientWidth - 32;
-      const ph = container.clientHeight - 50;
+      const pw = container.clientWidth - CANVAS_PAD_X;
+      const ph = container.clientHeight - CANVAS_PAD_Y;
       if (pw <= 0 || ph <= 0) return;
       const sx = pw / canvasWidth;
       const sy = ph / canvasHeight;

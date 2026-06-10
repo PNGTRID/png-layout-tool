@@ -2,7 +2,12 @@
  * Gap ruler — draws distance annotations between layout cells on canvas.
  */
 
-import { LayoutCell } from '../shared/types';
+import type { LayoutCell } from '../shared/types';
+import {
+  COLOR_GAP_RULER, COLOR_GAP_RULER_TEXT,
+  RULER_MIN_FONT_SIZE, RULER_FONT_DIVISOR,
+  RULER_DOT_MIN_RADIUS, RULER_DOT_DIVISOR,
+} from '../shared/constants';
 import { pxToCm } from './canvas-utils';
 
 export interface GapInfo {
@@ -73,14 +78,14 @@ export function drawGapRulers(
 
   ctx.save();
 
-  const baseFontSize = Math.max(14, Math.round(canvasWidth / 120));
+  const baseFontSize = Math.max(RULER_MIN_FONT_SIZE, Math.round(canvasWidth / RULER_FONT_DIVISOR));
 
   for (const ng of nearestGaps) {
     if (ng.gap <= 0) continue;
 
     // Annotation line
     ctx.setLineDash([]);
-    ctx.strokeStyle = '#ef4444';
+    ctx.strokeStyle = COLOR_GAP_RULER;
     ctx.lineWidth = Math.max(2, Math.round(canvasWidth / 400));
     ctx.beginPath();
     ctx.moveTo(ng.ax, ng.ay);
@@ -88,8 +93,8 @@ export function drawGapRulers(
     ctx.stroke();
 
     // Endpoint dots
-    const dotR = Math.max(3, Math.round(canvasWidth / 600));
-    ctx.fillStyle = '#ef4444';
+    const dotR = Math.max(RULER_DOT_MIN_RADIUS, Math.round(canvasWidth / RULER_DOT_DIVISOR));
+    ctx.fillStyle = COLOR_GAP_RULER;
     ctx.beginPath();
     ctx.arc(ng.ax, ng.ay, dotR, 0, Math.PI * 2);
     ctx.fill();
@@ -118,7 +123,7 @@ export function drawGapRulers(
 
     const lrx = midX - lw / 2;
     const lry = midY - lh / 2;
-    ctx.fillStyle = '#ef4444';
+    ctx.fillStyle = COLOR_GAP_RULER;
     const r = Math.max(4, baseFontSize * 0.25);
     ctx.beginPath();
     ctx.moveTo(lrx + r, lry);
@@ -133,7 +138,7 @@ export function drawGapRulers(
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = COLOR_GAP_RULER_TEXT;
     ctx.fillText(label, midX, midY);
   }
 

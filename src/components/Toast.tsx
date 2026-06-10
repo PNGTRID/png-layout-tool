@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TOAST_AUTO_DISMISS_MS, TOAST_MAX_COUNT } from '../shared/constants';
 
 export interface ToastMessage {
@@ -28,6 +28,17 @@ export function showToast(type: ToastMessage['type'], text: string): void {
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  /** Track pending auto-dismiss timers for cleanup on unmount */
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Clean up all pending timers on unmount
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
 
   const addToast = useCallback((toast: ToastMessage) => {
     setToasts(prev => {
@@ -38,10 +49,12 @@ export function ToastContainer() {
       if (next.length > TOAST_MAX_COUNT) next.splice(0, next.length - TOAST_MAX_COUNT);
       return next;
     });
-    // Auto-dismiss
-    setTimeout(() => {
+    // Auto-dismiss with cleanup tracking
+    const timer = setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== toast.id));
+      timersRef.current.delete(toast.id);
     }, TOAST_AUTO_DISMISS_MS);
+    timersRef.current.set(toast.id, timer);
   }, []);
 
   useEffect(() => {

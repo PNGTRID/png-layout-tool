@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { getPlatformAPI } from '../shared/ipc';
+import type { UpdateCheckResult, UpdateDownloadEvent } from '../shared/ipc';
+
+import { showToast } from '../components/Toast';
 
 interface UpdateInfo {
   version: string;
@@ -28,15 +30,27 @@ const INITIAL_STATE: UpdaterState = {
   updateInfo: null,
 };
 
+/** 将更新器技术错误映射为中文提示 */
+function friendlyUpdateError(err: unknown, context: string): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('Network'))
+    return `${context}失败：网络连接错误，请检查网络后重试`;
+  if (msg.includes('signature') || msg.includes('verify'))
+    return `${context}失败：更新包验证失败`;
+  if (msg.includes('permission') || msg.includes('Permission'))
+    return `${context}失败：权限不足，请以管理员身份运行`;
+  return `${context}失败：${msg}`;
+}
+
 export function useAppUpdater() {
   const [state, setState] = useState<UpdaterState>(INITIAL_STATE);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateRef = useRef<any>(null);
+  const updateRef = useRef<UpdateCheckResult | null>(null);
 
   const checkForUpdate = useCallback(async () => {
     setState((prev) => ({ ...prev, checking: true, error: null }));
     try {
-      const update = await check();
+      const platform = getPlatformAPI();
+      const update = await platform.checkForUpdate();
       if (update) {
         updateRef.current = update;
         setState((prev) => ({
@@ -59,11 +73,13 @@ export function useAppUpdater() {
         return false;
       }
     } catch (err) {
+      const errorMsg = friendlyUpdateError(err, '检查更新');
       console.error('[updater] check failed:', err);
+      showToast('error', errorMsg);
       setState((prev) => ({
         ...prev,
         checking: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMsg,
       }));
       return false;
     }
@@ -84,7 +100,7 @@ export function useAppUpdater() {
       let downloaded = 0;
       let contentLength = 0;
 
-      await update.downloadAndInstall((event: any) => {
+      await update.downloadAndInstall((event: UpdateDownloadEvent) => {
         switch (event.event) {
           case 'Started':
             contentLength = event.data.contentLength ?? 0;
@@ -107,14 +123,17 @@ export function useAppUpdater() {
         }
       });
 
-      await relaunch();
+      const platform = getPlatformAPI();
+      await platform.relaunch();
     } catch (err) {
+      const errorMsg = friendlyUpdateError(err, '下载更新');
       console.error('[updater] download/install failed:', err);
+      showToast('error', errorMsg);
       setState((prev) => ({
         ...prev,
         downloading: false,
         installing: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMsg,
       }));
     }
   }, []);

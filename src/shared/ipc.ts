@@ -1,5 +1,8 @@
+/** Options for the native save-file dialog. */
 export interface SaveDialogOptions {
+  /** File type filters shown in the dialog */
   filters: { name: string; extensions: string[] }[];
+  /** Suggested default file path */
   defaultPath?: string;
 }
 
@@ -9,9 +12,25 @@ export interface SaveDialogOptions {
  * Call setPlatformAPI() in tests to inject a mock.
  */
 
+/** 更新器下载事件 */
+export interface UpdateDownloadEvent {
+  event: 'Started' | 'Progress' | 'Finished';
+  data: { contentLength?: number; chunkLength: number };
+}
+
+/** 更新器检查结果 */
+export interface UpdateCheckResult {
+  version: string;
+  date?: string;
+  body?: string;
+  downloadAndInstall(onEvent: (e: UpdateDownloadEvent) => void): Promise<void>;
+}
+
 export interface IPlatformAPI {
   showSaveDialog(options: SaveDialogOptions): Promise<string | null>;
   writeFile(filePath: string, data: Uint8Array): Promise<void>;
+  checkForUpdate(): Promise<UpdateCheckResult | null>;
+  relaunch(): Promise<void>;
 }
 
 // Production implementation — uses dynamic import to keep Tauri optional
@@ -27,6 +46,23 @@ class TauriPlatformAPI implements IPlatformAPI {
   async writeFile(filePath: string, data: Uint8Array): Promise<void> {
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     await writeFile(filePath, data);
+  }
+
+  async checkForUpdate(): Promise<UpdateCheckResult | null> {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check();
+    if (!update) return null;
+    return {
+      version: update.version,
+      date: update.date,
+      body: update.body,
+      downloadAndInstall: update.downloadAndInstall.bind(update),
+    };
+  }
+
+  async relaunch(): Promise<void> {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
   }
 }
 
@@ -59,6 +95,12 @@ class NullPlatformAPI implements IPlatformAPI {
   async writeFile(): Promise<void> {
     // no-op in browser
   }
+  async checkForUpdate(): Promise<null> {
+    return null;
+  }
+  async relaunch(): Promise<void> {
+    // no-op in browser
+  }
 }
 
 /**
@@ -72,5 +114,11 @@ export const platformAPI: IPlatformAPI = {
   },
   writeFile(filePath: string, data: Uint8Array): Promise<void> {
     return getPlatformAPI().writeFile(filePath, data);
+  },
+  checkForUpdate(): Promise<UpdateCheckResult | null> {
+    return getPlatformAPI().checkForUpdate();
+  },
+  relaunch(): Promise<void> {
+    return getPlatformAPI().relaunch();
   },
 };

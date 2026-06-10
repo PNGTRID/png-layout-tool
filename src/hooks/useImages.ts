@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
-import { UploadedImage } from '../shared/types';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { UploadedImage } from '../shared/types';
 import { MAX_FILE_SIZE_MB } from '../shared/constants';
 import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
+import { clearImageCache } from '../lib/image-cache';
 import { showToast } from '../components/Toast';
 
 /** Maximum number of files to load concurrently — prevents memory spikes */
@@ -152,6 +153,19 @@ export function useImages() {
   }, []);
 
   const totalQuantity = images.reduce((sum, img) => sum + img.quantity, 0);
+
+  // Cleanup: revoke all ObjectURLs and clear cache on unmount
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+
+  useEffect(() => {
+    return () => {
+      for (const img of imagesRef.current) {
+        URL.revokeObjectURL(img.objectUrl);
+      }
+      clearImageCache();
+    };
+  }, []);
 
   return { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity };
 }

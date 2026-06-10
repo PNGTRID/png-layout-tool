@@ -4,8 +4,8 @@
  */
 
 import { useEffect, type RefObject } from 'react';
-import { LayoutResult, UploadedImage } from '../shared/types';
-import { MAX_PREVIEW_PIXELS } from '../shared/constants';
+import type { LayoutResult, UploadedImage } from '../shared/types';
+import { MAX_PREVIEW_PIXELS, COLOR_ERROR_FILL, COLOR_HOVER_STROKE, COLOR_SELECTION_STROKE, SELECTION_DASH_MIN, SELECTION_DASH_DIVISOR } from '../shared/constants';
 import { drawRotatedImage } from '../lib/draw-rotated';
 import { loadImage } from '../lib/image-cache';
 import { drawGapRulers, getSrcCropRect } from '../lib/canvas-utils';
@@ -98,7 +98,7 @@ export function useCanvasRenderer({
           );
         } catch (err) {
           console.error('[canvas] render failed for cell:', cell.cellId, err);
-          ctx.fillStyle = '#ff4444';
+          ctx.fillStyle = COLOR_ERROR_FILL;
           ctx.fillRect(cell.x, cell.y, cell.drawWidth, cell.drawHeight);
           showToast('error', `图片渲染失败: ${imgData?.name || cell.cellId}`);
         }
@@ -111,7 +111,7 @@ export function useCanvasRenderer({
         const hoverCell = layout.cells.find(c => c.cellId === hoveredCellId);
         if (hoverCell) {
           ctx.save();
-          ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+          ctx.strokeStyle = COLOR_HOVER_STROKE;
           ctx.lineWidth = Math.max(2, Math.round(layout.canvasWidth / 500));
           ctx.setLineDash([]);
           ctx.strokeRect(hoverCell.x, hoverCell.y, hoverCell.drawWidth, hoverCell.drawHeight);
@@ -124,9 +124,9 @@ export function useCanvasRenderer({
         const selCell = layout.cells.find(c => c.cellId === selectedCellId);
         if (selCell) {
           ctx.save();
-          ctx.strokeStyle = '#3b82f6';
+          ctx.strokeStyle = COLOR_SELECTION_STROKE;
           ctx.lineWidth = Math.max(2, Math.round(layout.canvasWidth / 500));
-          ctx.setLineDash([Math.max(4, Math.round(layout.canvasWidth / 300))]);
+          ctx.setLineDash([Math.max(SELECTION_DASH_MIN, Math.round(layout.canvasWidth / SELECTION_DASH_DIVISOR))]);
           ctx.strokeRect(
             selCell.x - 2, selCell.y - 2,
             selCell.drawWidth + 4, selCell.drawHeight + 4

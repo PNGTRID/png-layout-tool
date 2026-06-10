@@ -23,6 +23,27 @@ export const MAX_FILE_SIZE_MB = 200;
  */
 export const MAX_PREVIEW_PIXELS = 100_000_000;
 
+// ─── Image loader ──────────────────────────────────────────────────
+/** Pixel count threshold for "small" images — direct scan (no coarse phase) */
+export const TRIM_SMALL_IMAGE_PIXELS = 2048 * 2048;
+
+/** Maximum dimension for coarse scan downscale in trim detection */
+export const TRIM_COARSE_MAX_DIM = 1024;
+
+/** Minimum valid DPI read from PNG pHYs chunk */
+export const MIN_VALID_DPI = 72;
+
+/** Maximum valid DPI read from PNG pHYs chunk */
+export const MAX_VALID_DPI = 2400;
+
+// ─── Image cache ───────────────────────────────────────────────────
+/** Maximum cached image entries (LRU eviction) */
+export const MAX_CACHE_SIZE = 200;
+
+// ─── Export pipeline ───────────────────────────────────────────────
+/** Maximum height (px) per rendering strip for large canvas export */
+export const STRIP_HEIGHT = 4096;
+
 // ─── Layout engine ─────────────────────────────────────────────────
 /** Maximum canvas height (px) — bounded to prevent runaway memory */
 export const MAX_CANVAS_HEIGHT = 100_000;
@@ -39,6 +60,46 @@ export const ZOOM_MIN = 0.1;
 
 /** Maximum zoom level */
 export const ZOOM_MAX = 2;
+
+/** Canvas container horizontal padding (px) */
+export const CANVAS_PAD_X = 32;
+
+/** Canvas container vertical padding (px) */
+export const CANVAS_PAD_Y = 50;
+
+/** Ruler label minimum font size (px) */
+export const RULER_MIN_FONT_SIZE = 14;
+
+/** Ruler label font size divisor (fontSize = max(MIN, canvasWidth / DIVISOR)) */
+export const RULER_FONT_DIVISOR = 120;
+
+/** Ruler dot minimum radius (px) */
+export const RULER_DOT_MIN_RADIUS = 3;
+
+/** Ruler dot radius divisor (radius = max(MIN, canvasWidth / DIVISOR)) */
+export const RULER_DOT_DIVISOR = 600;
+
+/** Selection dash minimum segment length (px) */
+export const SELECTION_DASH_MIN = 4;
+
+/** Selection dash divisor (dashLen = max(MIN, canvasWidth / DIVISOR)) */
+export const SELECTION_DASH_DIVISOR = 300;
+
+// ─── Canvas rendering colors ───────────────────────────────────────
+/** Canvas error fill color (red-500) */
+export const COLOR_ERROR_FILL = '#ff4444';
+
+/** Canvas hover highlight stroke (blue-500, 40% opacity) */
+export const COLOR_HOVER_STROKE = 'rgba(59, 130, 246, 0.4)';
+
+/** Canvas selection stroke (blue-500) */
+export const COLOR_SELECTION_STROKE = '#3b82f6';
+
+/** Gap ruler line and label background (red-500) */
+export const COLOR_GAP_RULER = '#ef4444';
+
+/** Gap ruler text color (white) */
+export const COLOR_GAP_RULER_TEXT = '#ffffff';
 
 // ─── Toast ─────────────────────────────────────────────────────────
 /** Auto-dismiss timeout for toast notifications (ms) */

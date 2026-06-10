@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, ImageIcon, Minus, Plus, RotateCcw, CheckSquare, Square, Check } from 'lucide-react';
-import { UploadedImage } from '../shared/types';
+import type { UploadedImage } from '../shared/types';
 
 interface ImageListProps {
   images: UploadedImage[];

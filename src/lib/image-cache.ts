@@ -4,8 +4,7 @@
  * with explicit lifecycle management and bounded memory usage.
  */
 
-/** Maximum cached images — prevents unbounded memory growth */
-const MAX_CACHE_SIZE = 200;
+import { MAX_CACHE_SIZE } from '../shared/constants';
 
 const imageCache = new Map<string, HTMLImageElement>();
 

@@ -3,7 +3,7 @@
  * Uses psd-writer, cmyk, and shared image-cache modules.
  */
 
-import { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
+import type { LayoutResult, UploadedImage, LayoutParams } from '../shared/types';
 import { platformAPI } from '../shared/ipc';
 import { drawRotatedImage } from './draw-rotated';
 import { loadImage, clearImageCache } from './image-cache';
