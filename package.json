@@ -1,6 +1,6 @@
 {
   "name": "png-layout-tool",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "PNG 透明图片自动排版工具",
   "type": "module",
   "scripts": {
@@ -9,8 +9,9 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "bump": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
@@ -24,15 +25,20 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "eslint": "^10.4.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
     "happy-dom": "^20.10.2",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.61.0",
     "vite": "^5.0.0",
     "vitest": "^4.1.8"
   }

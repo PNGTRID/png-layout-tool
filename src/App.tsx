@@ -1,6 +1,5 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
-import { Settings, ImageIcon, Undo2, Redo2 } from 'lucide-react';
-import type { UploadedImage } from './shared/types';
+import { useCallback, useReducer, useRef, useState, useEffect } from 'react';
+import { Settings, ImageIcon } from 'lucide-react';
 import { useImages } from './hooks/useImages';
 import { useLayout } from './hooks/useLayout';
 import { useDragDrop } from './hooks/useDragDrop';
@@ -29,13 +28,83 @@ function friendlyErrorMessage(err: unknown, context: string): string {
 }
 
 function App() {
-  const { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages();
-  const { params, layout, warnings, updateParam, relayout, updatePosition } = useLayout(images);
+  // Unified action log for coordinating undo/redo across two independent history stacks
+  type ActionType = 'image' | 'position';
+  const actionLogRef = useRef<ActionType[]>([]);
+  const redoLogRef = useRef<ActionType[]>([]);
+  const [actionSeq, setActionSeq] = useReducer((x: number) => x + 1, 0);
+
+  // Stable callback: pushes an image action to the unified action log. Empty deps
+  // so useImages' action callbacks stay referentially stable across renders.
+  const recordImageAction = useCallback(() => {
+    actionLogRef.current.push('image');
+    redoLogRef.current = [];
+    setActionSeq();
+  }, []);
+
+  // Images hook — onAction pushes to unified action log
+  const { images, isProcessing, addFiles, removeImage, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages(recordImageAction);
+  const { params, layout, warnings, updateParam, relayout, updatePosition, beginPositionEdit, undoPosition, redoPosition } = useLayout(images);
   const { isDragging } = useDragDrop({ onFilesDropped: addFiles });
   const updater = useAppUpdater();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
+
+  // Unified undo/redo — dispatches to the correct history stack based on action log
+  const canUndo = actionLogRef.current.length > 0;
+  const canRedo = redoLogRef.current.length > 0;
+  // actionSeq is used to trigger re-renders when action log changes
+  void actionSeq;
+
+  const handleUndo = useCallback(() => {
+    const last = actionLogRef.current.pop();
+    if (!last) return;
+    if (last === 'image') {
+      undoRedo.undo();
+    } else {
+      undoPosition();
+    }
+    redoLogRef.current.push(last);
+    setActionSeq();
+  }, [undoRedo, undoPosition]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoLogRef.current.pop();
+    if (!next) return;
+    if (next === 'image') {
+      undoRedo.redo();
+    } else {
+      redoPosition();
+    }
+    actionLogRef.current.push(next);
+    setActionSeq();
+  }, [undoRedo, redoPosition]);
+
+  // Drag started — capture pre-edit snapshot into the position undo history.
+  // (The action log entry is added on drag end so only committed drags are undoable.)
+  const handleDragStart = useCallback(() => {
+    beginPositionEdit();
+  }, [beginPositionEdit]);
+
+  // Drag ended with movement — record the position action. (x, y) were already
+  // applied via updatePosition during the drag, so nothing is written here.
+  const handleDragEnd = useCallback(() => {
+    actionLogRef.current.push('position');
+    redoLogRef.current = [];
+    setActionSeq();
+  }, []);
+
+  // Wrap relayout: resetting position overrides/history must also purge stale
+  // 'position' entries from the unified action log, otherwise undo would pop a
+  // 'position' whose history is already empty (no-op + desynced redo log).
+  // Image entries stay — their history lives independently in useUndoRedo.
+  const handleRelayout = useCallback(() => {
+    relayout();
+    actionLogRef.current = actionLogRef.current.filter(a => a !== 'position');
+    redoLogRef.current = redoLogRef.current.filter(a => a !== 'position');
+    setActionSeq();
+  }, [relayout]);
 
   // Show layout warnings as toasts
   useEffect(() => {
@@ -60,16 +129,16 @@ function App() {
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        if (undoRedo.canUndo) undoRedo.undo();
+        if (canUndo) handleUndo();
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
-        if (undoRedo.canRedo) undoRedo.redo();
+        if (canRedo) handleRedo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoRedo]);
+  }, [canUndo, canRedo, handleUndo, handleRedo]);
 
   // Shared progress callback for exports
   const onExportProgress: ExportProgressCallback = useCallback((phase, current, total) => {
@@ -203,7 +272,7 @@ function App() {
         onExportPNG={handleExportPNG}
         onExportPSD={handleExportPSD}
         onClear={handleClearAll}
-        onRelayout={relayout}
+        onRelayout={handleRelayout}
         hasImages={hasImages && !isExporting}
         checkingUpdate={updater.checking}
         onCheckUpdate={async () => {
@@ -212,10 +281,10 @@ function App() {
             showToast('info', '当前已是最新版本');
           }
         }}
-        canUndo={undoRedo.canUndo}
-        canRedo={undoRedo.canRedo}
-        onUndo={undoRedo.undo}
-        onRedo={undoRedo.redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
 
       {/* Main Content — three columns */}
@@ -260,6 +329,8 @@ function App() {
                 canvasRef={canvasRef}
                 onRotate={rotateImage}
                 onUpdatePosition={updatePosition}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-lt-muted">
@@ -298,7 +369,6 @@ function App() {
               onUpdateTargetSize={updateTargetSize}
               onRotate={rotateImage}
               dpi={params.dpi}
-              totalQuantity={totalQuantity}
             />
           </div>
 

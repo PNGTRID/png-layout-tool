@@ -2,6 +2,13 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 // layoutVersionRef is no longer needed — using useState instead
 import type { LayoutParams, LayoutResult, UploadedImage } from '../shared/types';
 import { calculateLayout, LayoutResultWithWarnings } from '../lib/layout-engine';
+import {
+  EMPTY_POSITION_HISTORY,
+  beginPositionEdit as beginEdit,
+  undoPosition as undoEdit,
+  redoPosition as redoEdit,
+  type PositionHistory,
+} from '../lib/position-history';
 
 const DEFAULT_PARAMS: LayoutParams = {
   gap: 2,              // cm
@@ -10,7 +17,6 @@ const DEFAULT_PARAMS: LayoutParams = {
   dpi: 300,
   autoRotate: false,
   backgroundColor: null,
-  alignMode: 'center',
   showCropMarks: false,
   bleedCm: 0,
 };
@@ -27,6 +33,14 @@ export function useLayout(images: UploadedImage[]) {
 
   // Per-cell position overrides, keyed by unique cellId
   const [positionOverrides, setPositionOverrides] = useState<Record<string, { x: number; y: number }>>({});
+
+  // Manual undo/redo history for position overrides (separate from useUndoRedo
+  // to avoid recording intermediate drag states). Transition rules live in the
+  // pure position-history module; this ref only holds the immutable snapshots so
+  // high-frequency drag updates don't trigger history-related re-renders.
+  const positionHistoryRef = useRef<PositionHistory>(EMPTY_POSITION_HISTORY);
+  const overridesRef = useRef(positionOverrides);
+  overridesRef.current = positionOverrides;
 
   // updateParam with debounce for expensive numeric params
   const updateParam = useCallback(<K extends keyof LayoutParams>(
@@ -71,6 +85,8 @@ export function useLayout(images: UploadedImage[]) {
   // Algorithm-computed layout
   const computedResult: LayoutResultWithWarnings = useMemo(() => {
     return calculateLayout(images, debouncedParams);
+  // layoutVersion intentionally listed: relayout() bumps it to force recomputation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [images, debouncedParams, layoutVersion]);
 
   // Apply manual position overrides to layout
@@ -92,12 +108,41 @@ export function useLayout(images: UploadedImage[]) {
     // Sync debounced params immediately on explicit relayout
     setDebouncedParams(params);
     setLayoutVersion(v => v + 1);
-    setPositionOverrides({}); // Clear manual positions on relayout
+    setPositionOverrides({});
+    positionHistoryRef.current = EMPTY_POSITION_HISTORY;
   }, [params]);
 
+  /**
+   * Begin a position edit — called once when a drag actually starts (first move
+   * past the dead zone), BEFORE updatePosition has mutated the overrides.
+   * Captures the pre-edit snapshot so undo can restore it. See position-history.
+   */
+  const beginPositionEdit = useCallback(() => {
+    positionHistoryRef.current = beginEdit(positionHistoryRef.current, { ...overridesRef.current });
+  }, []);
+
+  /** Update position during drag — real-time feedback, does NOT affect undo history */
   const updatePosition = useCallback((cellId: string, x: number, y: number) => {
     setPositionOverrides(prev => ({ ...prev, [cellId]: { x, y } }));
   }, []);
 
-  return { params, layout, warnings, updateParam, relayout, updatePosition };
+  /** Undo last position change — returns false if no history */
+  const undoPosition = useCallback((): boolean => {
+    const { history, restored } = undoEdit(positionHistoryRef.current, { ...overridesRef.current });
+    if (!restored) return false;
+    positionHistoryRef.current = history;
+    setPositionOverrides(restored);
+    return true;
+  }, []);
+
+  /** Redo last undone position change — returns false if no future */
+  const redoPosition = useCallback((): boolean => {
+    const { history, restored } = redoEdit(positionHistoryRef.current, { ...overridesRef.current });
+    if (!restored) return false;
+    positionHistoryRef.current = history;
+    setPositionOverrides(restored);
+    return true;
+  }, []);
+
+  return { params, layout, warnings, updateParam, relayout, updatePosition, beginPositionEdit, undoPosition, redoPosition };
 }

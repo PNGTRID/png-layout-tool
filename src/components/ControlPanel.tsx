@@ -1,61 +1,10 @@
 import type { LayoutParams } from '../shared/types';
-import { Square, Ruler, Maximize, Columns, RotateCw, AlignStartVertical, AlignCenterVertical, AlignEndVertical } from 'lucide-react';
+import { Square, Ruler, Maximize, Columns, Sparkles } from 'lucide-react';
 
 interface ControlPanelProps {
   params: LayoutParams;
   onUpdateParam: <K extends keyof LayoutParams>(key: K, value: LayoutParams[K]) => void;
   imageCount: number;
-}
-
-/** 带标签的数字输入框 */
-function NumberField({
-  label,
-  icon,
-  value,
-  min,
-  max,
-  step,
-  unit,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  placeholder?: string;
-  onChange: (val: number) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <label className="flex items-center gap-1.5 text-xs text-lt-sub shrink-0">
-        {icon}
-        {label}
-      </label>
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value || ''}
-          placeholder={placeholder}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            onChange(isNaN(v) ? 0 : Math.max(min, Math.min(max, v)));
-          }}
-          className="w-[72px] rounded-md border border-lt-border bg-white px-2 py-1 text-right text-xs
-                     font-mono text-accent-600 shadow-sm
-                     focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500/20
-                     transition-all"
-        />
-        {unit && <span className="text-[10px] text-lt-muted w-5">{unit}</span>}
-      </div>
-    </div>
-  );
 }
 
 export function ControlPanel({ params, onUpdateParam, imageCount }: ControlPanelProps) {
@@ -166,47 +115,20 @@ export function ControlPanel({ params, onUpdateParam, imageCount }: ControlPanel
 
       <hr className="border-lt-border" />
 
-      {/* 自动旋转 */}
-      <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-lt-border bg-white px-3 py-2.5 shadow-sm transition-all hover:bg-lt-hover">
+      {/* 智能排版：自动旋转竖图 + 多宽度搜索择优 */}
+      <label
+        title="智能排版：自动旋转竖图横排，并尝试多种画布宽度选出最紧凑的布局"
+        className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-lt-border bg-white px-3 py-2.5 shadow-sm transition-all hover:bg-lt-hover"
+      >
         <input
           type="checkbox"
           checked={params.autoRotate}
           onChange={(e) => onUpdateParam('autoRotate', e.target.checked)}
           className="h-3.5 w-3.5 rounded border-lt-border text-accent-500 focus:ring-accent-500"
         />
-        <RotateCw className="h-3.5 w-3.5 text-lt-sub" />
-        <span className="text-xs text-lt-sub">自动旋转（竖图横排）</span>
+        <Sparkles className="h-3.5 w-3.5 text-lt-sub" />
+        <span className="text-xs text-lt-sub">智能排版</span>
       </label>
-
-      <hr className="border-lt-border" />
-
-      {/* Row alignment */}
-      <div className="space-y-2">
-        <label className="flex items-center gap-1.5 text-xs font-medium text-lt-sub">
-          行对齐
-        </label>
-        <div className="flex items-center gap-1">
-          {([
-            { value: 'top' as const, icon: <AlignStartVertical className="h-3.5 w-3.5" />, label: '顶部对齐' },
-            { value: 'center' as const, icon: <AlignCenterVertical className="h-3.5 w-3.5" />, label: '居中对齐' },
-            { value: 'bottom' as const, icon: <AlignEndVertical className="h-3.5 w-3.5" />, label: '底部对齐' },
-          ]).map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => onUpdateParam('alignMode', opt.value)}
-              className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] transition-all ${
-                params.alignMode === opt.value
-                  ? 'border-accent-400 bg-accent-50 text-accent-600 font-medium'
-                  : 'border-lt-border bg-white text-lt-sub hover:bg-lt-hover'
-              }`}
-              title={opt.label}
-              aria-label={opt.label}
-            >
-              {opt.icon}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <hr className="border-lt-border" />
 

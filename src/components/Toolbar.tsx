@@ -1,4 +1,4 @@
-import { Download, Trash2, Layers, ImagePlus, FileImage, LayoutGrid, RefreshCw, Undo2, Redo2 } from 'lucide-react';
+import { Trash2, Layers, ImagePlus, FileImage, LayoutGrid, RefreshCw, Undo2, Redo2 } from 'lucide-react';
 
 interface ToolbarProps {
   onExportPNG: () => void;

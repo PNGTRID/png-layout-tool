@@ -91,7 +91,7 @@ export async function exportPSD(
       failedLayers.push(imgData.name);
       console.error(`[export-psd] Layer render failed: ${imgData.name}`, err);
       if (failedLayers.length >= MAX_LAYER_FAILURES) {
-        throw new Error(`PSD 导出失败：超过 ${MAX_LAYER_FAILURES} 个图层渲染出错（${failedLayers.slice(0, 3).join(', ')}...）`);
+        throw new Error(`PSD 导出失败：超过 ${MAX_LAYER_FAILURES} 个图层渲染出错（${failedLayers.slice(0, 3).join(', ')}...）`, { cause: err });
       }
     }
   }

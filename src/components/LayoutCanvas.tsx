@@ -4,7 +4,7 @@ import { findNearestGaps, pxToCm } from '../lib/canvas-utils';
 import { useCanvasZoom } from '../hooks/useCanvasZoom';
 import { useCanvasInteraction } from '../hooks/useCanvasInteraction';
 import { useCanvasRenderer } from '../hooks/useCanvasRenderer';
-import { RotateCw, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface LayoutCanvasProps {
   layout: LayoutResult;
@@ -15,9 +15,11 @@ interface LayoutCanvasProps {
   onReorder?: (newOrder: UploadedImage[]) => void;
   onRotate?: (imageId: string) => void;
   onUpdatePosition?: (cellId: string, x: number, y: number) => void;
+  onDragStart?: (cellId: string) => void;
+  onDragEnd?: (cellId: string, x: number, y: number) => void;
 }
 
-export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRef, onRotate, onUpdatePosition }: LayoutCanvasProps) {
+export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRef, onRotate, onUpdatePosition, onDragStart, onDragEnd }: LayoutCanvasProps) {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Zoom hook
@@ -35,6 +37,8 @@ export function LayoutCanvas({ layout, images, backgroundColor, params, canvasRe
     canvasWidth: layout.canvasWidth,
     canvasHeight: layout.canvasHeight,
     onUpdatePosition,
+    onDragStart,
+    onDragEnd,
   });
 
   // Current active cell (selected or hovered) for gap ruler

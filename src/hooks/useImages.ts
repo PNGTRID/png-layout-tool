@@ -43,7 +43,7 @@ async function parallelLimit<T>(
   return results;
 }
 
-export function useImages() {
+export function useImages(onAction?: () => void) {
   const [images, setImages, undoRedo] = useUndoRedo<UploadedImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -98,6 +98,7 @@ export function useImages() {
 
       if (newImages.length > 0) {
         setImages(prev => [...prev, ...newImages]);
+        onAction?.();
       }
     } catch (err) {
       console.error('[images] Unexpected error:', err);
@@ -105,31 +106,34 @@ export function useImages() {
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [onAction, setImages]);
 
   const removeImage = useCallback((id: string) => {
     setImages(prev => prev.filter(i => i.id !== id));
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const reorderImages = useCallback((newOrder: UploadedImage[]) => {
     setImages(newOrder);
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const clearAll = useCallback(() => {
     // Revoke URLs immediately (undo will restore state but URLs are gone — acceptable tradeoff)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const current = imagesRef.current;
     for (const img of current) {
       URL.revokeObjectURL(img.objectUrl);
     }
     setImages([]);
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const updateQuantity = useCallback((id: string, quantity: number) => {
     setImages(prev => prev.map(img =>
       img.id === id ? { ...img, quantity: Math.max(1, Math.min(99, quantity)) } : img
     ));
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const batchUpdateQuantity = useCallback((ids: string[], quantity: number) => {
     const q = Math.max(1, Math.min(99, quantity));
@@ -137,13 +141,15 @@ export function useImages() {
     setImages(prev => prev.map(img =>
       idSet.has(img.id) ? { ...img, quantity: q } : img
     ));
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const updateTargetSize = useCallback((id: string, targetWidthCm?: number, targetHeightCm?: number) => {
     setImages(prev => prev.map(img =>
       img.id === id ? { ...img, targetWidthCm, targetHeightCm } : img
     ));
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const rotateImage = useCallback((id: string) => {
     setImages(prev => prev.map(img => {
@@ -151,7 +157,8 @@ export function useImages() {
       const next = ((img.rotation / 90) + 1) % 4 * 90 as 0 | 90 | 180 | 270;
       return { ...img, rotation: next };
     }));
-  }, []);
+    onAction?.();
+  }, [onAction, setImages]);
 
   const totalQuantity = useMemo(() => images.reduce((sum, img) => sum + img.quantity, 0), [images]);
 

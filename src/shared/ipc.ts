@@ -12,11 +12,15 @@ export interface SaveDialogOptions {
  * Call setPlatformAPI() in tests to inject a mock.
  */
 
-/** 更新器下载事件 */
-export interface UpdateDownloadEvent {
-  event: 'Started' | 'Progress' | 'Finished';
-  data: { contentLength?: number; chunkLength: number };
-}
+/**
+ * 更新器下载事件（判别联合）。
+ * 与 @tauri-apps/plugin-updater 的 DownloadEvent 结构对齐 ——
+ * 不同事件的 data 形状不同，必须按 event 判别后再访问对应字段。
+ */
+export type UpdateDownloadEvent =
+  | { event: 'Started'; data: { contentLength?: number } }
+  | { event: 'Progress'; data: { chunkLength: number } }
+  | { event: 'Finished' };
 
 /** 更新器检查结果 */
 export interface UpdateCheckResult {

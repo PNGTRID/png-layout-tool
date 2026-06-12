@@ -51,6 +51,14 @@ export const MAX_CANVAS_HEIGHT = 100_000;
 /** Maximum number of layout items (images × quantity) — prevents O(n²) freeze */
 export const MAX_LAYOUT_ITEMS = 2000;
 
+/**
+ * Item count above which the smart-layout candidate-width search is narrowed.
+ * Smart layout tries up to 4 candidate widths × 6 sort strategies = 24 pack runs;
+ * beyond this threshold only the 2 most useful candidates are tried to keep the
+ * UI responsive (each run is O(n·k) compact + O(n²) overlap verification).
+ */
+export const SMART_LAYOUT_LARGE_THRESHOLD = 500;
+
 // ─── Canvas UI ─────────────────────────────────────────────────────
 /** Zoom step for Ctrl+scroll */
 export const ZOOM_STEP = 0.1;

@@ -164,8 +164,6 @@ export async function renderToCanvas(
     finalCtx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
-  let renderedCells = 0;
-
   for (let s = 0; s < numStrips; s++) {
     const stripY = s * STRIP_HEIGHT;
     const stripH = Math.min(STRIP_HEIGHT, layout.canvasHeight - stripY);
@@ -176,7 +174,7 @@ export async function renderToCanvas(
     finalCtx.drawImage(stripCanvas, 0, stripY);
 
     // Progress: estimate based on strips
-    renderedCells = Math.round(((s + 1) / numStrips) * totalCells);
+    const renderedCells = Math.round(((s + 1) / numStrips) * totalCells);
     onProgress?.('render', Math.min(renderedCells, totalCells), totalCells);
 
     // Clear strip canvas to free its backing store before next iteration

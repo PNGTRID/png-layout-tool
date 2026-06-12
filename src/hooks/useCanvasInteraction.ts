@@ -16,6 +16,10 @@ interface UseCanvasInteractionOptions {
   canvasWidth: number;
   canvasHeight: number;
   onUpdatePosition?: (cellId: string, x: number, y: number) => void;
+  /** Fires once when a drag actually starts (first movement past dead zone) — capture pre-edit state for undo */
+  onDragStart?: (cellId: string) => void;
+  /** Fires once when a drag ends successfully (mouse up after movement) */
+  onDragEnd?: (cellId: string, x: number, y: number) => void;
 }
 
 export function useCanvasInteraction({
@@ -25,6 +29,8 @@ export function useCanvasInteraction({
   canvasWidth,
   canvasHeight,
   onUpdatePosition,
+  onDragStart,
+  onDragEnd,
 }: UseCanvasInteractionOptions) {
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
@@ -38,6 +44,8 @@ export function useCanvasInteraction({
     cellStartX: number;
     cellStartY: number;
     moved: boolean;
+    finalX: number;
+    finalY: number;
   } | null>(null);
 
   const screenToCanvas = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -64,6 +72,8 @@ export function useCanvasInteraction({
         cellStartX: cell.x,
         cellStartY: cell.y,
         moved: false,
+        finalX: cell.x,
+        finalY: cell.y,
       };
     } else {
       setSelectedCellId(null);
@@ -85,28 +95,40 @@ export function useCanvasInteraction({
       if (!drag.moved) {
         drag.moved = true;
         setIsDragging(true);
+        // Capture pre-edit state exactly once at drag start — before updatePosition mutates overrides.
+        onDragStart?.(drag.cellId);
       }
 
       const cell = cells.find(c => c.cellId === drag.cellId);
       const newX = Math.max(0, Math.min(canvasWidth - (cell?.drawWidth ?? 0), drag.cellStartX + dx));
       const newY = Math.max(0, Math.min(canvasHeight - (cell?.drawHeight ?? 0), drag.cellStartY + dy));
+      drag.finalX = newX;
+      drag.finalY = newY;
       onUpdatePosition?.(drag.cellId, newX, newY);
     } else {
       const cell = hitTest(cells, pos.x, pos.y);
       setHoveredCellId(cell ? cell.cellId : null);
     }
-  }, [cells, screenToCanvas, onUpdatePosition]);
+  }, [cells, screenToCanvas, onUpdatePosition, onDragStart, canvasWidth, canvasHeight]);
 
   const handleMouseUp = useCallback(() => {
+    const drag = dragRef.current;
+    if (drag?.moved) {
+      onDragEnd?.(drag.cellId, drag.finalX, drag.finalY);
+    }
     dragRef.current = null;
     setIsDragging(false);
-  }, []);
+  }, [onDragEnd]);
 
   const handleMouseLeave = useCallback(() => {
+    const drag = dragRef.current;
+    if (drag?.moved) {
+      onDragEnd?.(drag.cellId, drag.finalX, drag.finalY);
+    }
     setHoveredCellId(null);
     dragRef.current = null;
     setIsDragging(false);
-  }, []);
+  }, [onDragEnd]);
 
   const clearSelection = useCallback(() => {
     setSelectedCellId(null);

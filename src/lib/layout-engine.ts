@@ -1,5 +1,5 @@
 import type { UploadedImage, LayoutParams, LayoutResult, LayoutCell } from '../shared/types';
-import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS } from '../shared/constants';
+import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS, SMART_LAYOUT_LARGE_THRESHOLD } from '../shared/constants';
 
 /** 将 cm 转换为像素（基于 DPI） */
 export function cmToPx(cm: number, dpi: number): number {
@@ -196,7 +196,7 @@ function packOneStrategy(
 
     const origFit = findBestBSSF(freeRects, drawW, drawH, canvasW);
     let bestW = drawW, bestH = drawH, bestFit = origFit, bestRotated = false;
-    let bestScore = scoreFit(origFit);
+    const bestScore = scoreFit(origFit);
 
     // Rotated orientation (swap w ↔ h) — skip if user already set manual rotation
     if (autoRotate && item.w !== item.h && item.img.rotation === 0) {
@@ -215,7 +215,6 @@ function packOneStrategy(
           bestH = rotH;
           bestFit = rotFit;
           bestRotated = true;
-          bestScore = rotScore;
         }
       }
     }
@@ -285,7 +284,7 @@ function compactCells(cells: LayoutCell[], gapPx: number): void {
         // Check horizontal overlap
         const cellRight = cell.x + cell.drawWidth;
         const otherRight = other.x + other.drawWidth;
-        if (cell.x < otherRight + gapPx && other.x < cellRight + gapPx) {
+        if (cell.x < otherRight && other.x < cellRight) {
           const blockedY = otherBottom + gapPx;
           if (blockedY > candidateY) {
             candidateY = blockedY;
@@ -304,52 +303,29 @@ function compactCells(cells: LayoutCell[], gapPx: number): void {
 }
 
 /**
- * Align cells within each row according to the specified mode.
- * A "row" is defined as cells whose vertical ranges overlap (y-overlap group).
- * - 'top':    cells stay at row top (no adjustment needed after compactCells)
- * - 'center': cells are vertically centered within the tallest cell in the row
- * - 'bottom': cells are aligned to the bottom of the tallest cell in the row
+ * Safety verification: O(n²) overlap detection and correction.
+ * After compactCells, verifies that no two cells overlap in both axes.
+ * If overlap is found, pushes the lower cell down by drawHeight + gapPx.
+ * Loops until no more overlaps are found (capped at 10 iterations).
+ * Acts as a guaranteed safety net against any edge-case overlap.
  */
-function alignRows(cells: LayoutCell[], gapPx: number, mode: 'top' | 'center' | 'bottom'): void {
-  if (mode === 'top' || cells.length <= 1) return;
-
-  // Sort by Y then X for row grouping
-  const sorted = [...cells].sort((a, b) => a.y - b.y || a.x - b.x);
-
-  // Group cells into rows by vertical overlap
-  const rows: LayoutCell[][] = [];
-  for (const cell of sorted) {
-    let placed = false;
-    for (const row of rows) {
-      const rowTop = Math.min(...row.map(c => c.y));
-      const rowBottom = Math.max(...row.map(c => c.y + c.drawHeight));
-      const cellBottom = cell.y + cell.drawHeight;
-      if (cell.y < rowBottom + gapPx && cellBottom > rowTop - gapPx) {
-        row.push(cell);
-        placed = true;
-        break;
+function verifyNoOverlap(cells: LayoutCell[], gapPx: number): void {
+  const maxPasses = 10;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let found = false;
+    for (let i = 0; i < cells.length; i++) {
+      for (let j = i + 1; j < cells.length; j++) {
+        const a = cells[i];
+        const b = cells[j];
+        const hOverlap = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x;
+        const vOverlap = a.y < b.y + b.drawHeight && a.y + a.drawHeight > b.y;
+        if (hOverlap && vOverlap) {
+          b.y = Math.max(b.y, a.y + a.drawHeight + gapPx);
+          found = true;
+        }
       }
     }
-    if (!placed) {
-      rows.push([cell]);
-    }
-  }
-
-  // Build O(1) lookup map from cellId to original cell
-  const cellMap = new Map(cells.map(c => [c.cellId, c]));
-
-  // Align cells within each row
-  for (const row of rows) {
-    if (row.length <= 1) continue;
-    const maxHeight = Math.max(...row.map(c => c.drawHeight));
-    for (const cell of row) {
-      if (cell.drawHeight >= maxHeight) continue;
-      const offset = mode === 'center'
-        ? Math.round((maxHeight - cell.drawHeight) / 2)
-        : Math.round(maxHeight - cell.drawHeight);
-      const original = cellMap.get(cell.cellId);
-      if (original) original.y += offset;
-    }
+    if (!found) break;
   }
 }
 
@@ -408,19 +384,44 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
     return { img, copyIndex, w, h };
   });
 
-  // 3. Determine canvas width — must use effective dimensions, not raw trimWidth
-  let canvasWidthPx: number;
-  if (params.canvasWidthCm > 0) {
-    canvasWidthPx = cmToPx(params.canvasWidthCm, params.dpi);
+  // 3. Determine candidate canvas widths
+  //    - Fixed width: use user-specified value directly
+  //    - Auto width + smart layout: try multiple candidate widths and pick the most compact
+  //    - Auto width + no smart layout: use simple sum formula
+  const fixedCanvasWidth = params.canvasWidthCm > 0
+    ? cmToPx(params.canvasWidthCm, params.dpi)
+    : 0;
+
+  const sumWidth = items.reduce((sum, item) => sum + item.w, 0) +
+    gapPx * Math.max(items.length - 1, 0);
+  const maxItemW = items.reduce((max, item) => Math.max(max, item.w), 0);
+  const totalArea = items.reduce((sum, item) => sum + item.w * item.h, 0);
+
+  let candidateWidths: number[];
+  if (fixedCanvasWidth > 0) {
+    candidateWidths = [fixedCanvasWidth];
+  } else if (params.autoRotate) {
+    // Smart layout: try multiple widths for optimal packing
+    const sqrtW = Math.ceil(Math.sqrt(totalArea));
+    const allCandidates = [
+      sumWidth,                                    // all-in-one-row (baseline)
+      Math.max(maxItemW, sqrtW),                   // roughly square
+      Math.max(maxItemW, Math.ceil(sqrtW * 1.5)), // wider square
+      Math.max(maxItemW * 2 + gapPx, Math.ceil(totalArea / maxItemW)), // two-column estimate
+    ];
+    // Large sets: keep only the two most useful candidates to avoid 24× pack runs
+    // (each run = MaxRects + O(n·k) compact + O(n²) overlap verify) freezing the UI.
+    const useCount = items.length > SMART_LAYOUT_LARGE_THRESHOLD ? 2 : allCandidates.length;
+    // Deduplicate and sort descending (wider first tends to produce flatter layouts faster)
+    candidateWidths = [...new Set(allCandidates.slice(0, useCount))].sort((a, b) => b - a);
   } else {
-    canvasWidthPx = items.reduce((sum, item) => sum + item.w, 0) +
-      gapPx * Math.max(items.length - 1, 0);
+    candidateWidths = [sumWidth];
   }
 
   // Create local ID counter (avoids module-level mutable state)
   const idCounter: IdCounter = { value: 0 };
 
-  // 4. Try multiple sorting strategies — pick the most compact result
+  // 4. Try multiple sorting strategies × candidate widths — pick the most compact result
   const strategies: { name: string; items: PackItem[] }[] = [
     { name: 'area',      items: [...items].sort((a, b) => (b.w * b.h) - (a.w * a.h)) },
     { name: 'maxSide',   items: [...items].sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h)) },
@@ -437,23 +438,29 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
   let bestCells: LayoutCell[] = [];
   let bestHeight = Infinity;
   let bestStrategy = '';
+  let bestCanvasWidth = 0;
 
-  for (const strategy of strategies) {
-    // Reset counter for each strategy to get comparable ids
-    idCounter.value = 0;
-    const cells = packOneStrategy(strategy.items, canvasWidthPx, gapPx, params.autoRotate, idCounter);
-    compactCells(cells, gapPx);
-    alignRows(cells, gapPx, params.alignMode);
+  for (const cw of candidateWidths) {
+    for (const strategy of strategies) {
+      // Reset counter for each attempt to get comparable ids
+      idCounter.value = 0;
+      const cells = packOneStrategy(strategy.items, cw, gapPx, params.autoRotate, idCounter);
+      compactCells(cells, gapPx);
+      verifyNoOverlap(cells, gapPx);
 
-    // Use reduce to avoid Math.max(...array) stack overflow on large arrays
-    const height = cells.reduce((max, c) => Math.max(max, c.y + c.drawHeight), 0);
+      // Use reduce to avoid Math.max(...array) stack overflow on large arrays
+      const height = cells.reduce((max, c) => Math.max(max, c.y + c.drawHeight), 0);
 
-    if (height < bestHeight) {
-      bestHeight = height;
-      bestCells = cells;
-      bestStrategy = strategy.name;
+      if (height < bestHeight) {
+        bestHeight = height;
+        bestCells = cells;
+        bestStrategy = strategy.name;
+        bestCanvasWidth = cw;
+      }
     }
   }
+
+  const canvasWidthPx = bestCanvasWidth || fixedCanvasWidth || sumWidth;
 
   // Check for unplaced items
   if (bestCells.length < items.length) {
@@ -476,7 +483,7 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
       bestCells.forEach(c => { c.y += offset; });
     }
     const elapsed = (performance.now() - t0).toFixed(1);
-    console.info(`[layout] strategy=${bestStrategy}, ${bestCells.length} cells, ${elapsed}ms, warnings=${warnings.length}`);
+    console.info(`[layout] strategy=${bestStrategy}, ${bestCells.length} cells, ${elapsed}ms, canvasW=${canvasWidthPx}, warnings=${warnings.length}`);
     return { canvasWidth: canvasWidthPx, canvasHeight: targetH, cells: bestCells, warnings };
   }
 

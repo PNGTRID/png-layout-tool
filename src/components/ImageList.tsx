@@ -10,7 +10,6 @@ interface ImageListProps {
   onUpdateTargetSize: (id: string, targetWidthCm?: number, targetHeightCm?: number) => void;
   onRotate: (id: string) => void;
   dpi: number;
-  totalQuantity: number;
 }
 
 function naturalCmSize(trimPx: number, dpi: number): string {
@@ -178,7 +177,7 @@ const ImageCard = memo(function ImageCard({
   );
 });
 
-export function ImageList({ images, onRemove, onUpdateQuantity, onBatchUpdateQuantity, onUpdateTargetSize, onRotate, dpi, totalQuantity }: ImageListProps) {
+export function ImageList({ images, onRemove, onUpdateQuantity, onBatchUpdateQuantity, onUpdateTargetSize, onRotate, dpi }: ImageListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedId, setLastClickedId] = useState<string | null>(null);
   const [batchQty, setBatchQty] = useState(2);

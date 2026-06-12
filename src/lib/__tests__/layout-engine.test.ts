@@ -29,7 +29,6 @@ const DEFAULT_PARAMS: LayoutParams = {
   dpi: 300,
   autoRotate: false,
   backgroundColor: null,
-  alignMode: 'center',
   showCropMarks: false,
   bleedCm: 0,
 };
@@ -220,5 +219,114 @@ describe('calculateLayout', () => {
     const images = Array.from({ length: 600 }, () => makeImage(20, 20));
     // This should not throw due to Math.max(...largeArray) stack overflow
     expect(() => calculateLayout(images, DEFAULT_PARAMS)).not.toThrow();
+  });
+
+  it('never produces overlapping cells with mixed sizes and non-zero gap', () => {
+    const params: LayoutParams = { ...DEFAULT_PARAMS, gap: 2 };
+    const images = [
+      makeImage(100, 300),   // tall
+      makeImage(300, 100),   // wide
+      makeImage(150, 150),   // square
+      makeImage(200, 400),   // taller
+      makeImage(400, 200),   // wider
+      makeImage(80, 80),     // small
+    ];
+    const result = calculateLayout(images, params);
+    expect(result.cells.length).toBe(6);
+
+    for (let i = 0; i < result.cells.length; i++) {
+      for (let j = i + 1; j < result.cells.length; j++) {
+        const a = result.cells[i];
+        const b = result.cells[j];
+        const overlaps = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x &&
+                         a.y < b.y + b.drawHeight && a.y + a.drawHeight > b.y;
+        expect(overlaps).toBe(false);
+      }
+    }
+  });
+
+  it('maintains minimum vertical gap between horizontally overlapping cells', () => {
+    const gapCm = 1.5;
+    const params: LayoutParams = { ...DEFAULT_PARAMS, gap: gapCm };
+    const images = Array.from({ length: 20 }, (_, i) => makeImage(100 + i * 10, 50 + i * 5));
+    const result = calculateLayout(images, params);
+    const gapPx = cmToPx(gapCm, params.dpi);
+
+    for (let i = 0; i < result.cells.length; i++) {
+      for (let j = i + 1; j < result.cells.length; j++) {
+        const a = result.cells[i];
+        const b = result.cells[j];
+        const hOverlap = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x;
+        if (hOverlap) {
+          const vGap = Math.max(
+            b.y - (a.y + a.drawHeight),
+            a.y - (b.y + b.drawHeight),
+            0
+          );
+          expect(vGap).toBeGreaterThanOrEqual(gapPx - 1);
+        }
+      }
+    }
+  });
+
+  it('mixed sizes with autoRotate never overlaps', () => {
+    const params: LayoutParams = { ...DEFAULT_PARAMS, gap: 1, autoRotate: true };
+    const images = Array.from({ length: 30 }, (_, i) => {
+      const w = 50 + (i % 7) * 40;
+      const h = 50 + (i % 5) * 60;
+      return makeImage(w, h);
+    });
+    const result = calculateLayout(images, params);
+
+    for (let i = 0; i < result.cells.length; i++) {
+      for (let j = i + 1; j < result.cells.length; j++) {
+        const a = result.cells[i];
+        const b = result.cells[j];
+        const overlaps = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x &&
+                         a.y < b.y + b.drawHeight && a.y + a.drawHeight > b.y;
+        expect(overlaps).toBe(false);
+      }
+    }
+  });
+
+  it('smart layout (autoRotate + auto-width) produces valid compact result', () => {
+    const images = [
+      makeImage(100, 300),   // tall
+      makeImage(300, 100),   // wide
+      makeImage(150, 150),   // square
+      makeImage(200, 400),   // taller
+      makeImage(80, 80),     // small
+      makeImage(250, 180),   // medium
+    ];
+    const params: LayoutParams = { ...DEFAULT_PARAMS, canvasWidthCm: 0, gap: 1, autoRotate: true };
+    const result = calculateLayout(images, params);
+
+    // All images placed
+    expect(result.cells.length).toBe(6);
+
+    // No overlaps
+    for (let i = 0; i < result.cells.length; i++) {
+      for (let j = i + 1; j < result.cells.length; j++) {
+        const a = result.cells[i];
+        const b = result.cells[j];
+        const overlaps = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x &&
+                         a.y < b.y + b.drawHeight && a.y + a.drawHeight > b.y;
+        expect(overlaps).toBe(false);
+      }
+    }
+
+    // Canvas dimensions should be positive and reasonable
+    expect(result.canvasWidth).toBeGreaterThan(0);
+    expect(result.canvasHeight).toBeGreaterThan(0);
+
+    // Total area used should be at least the sum of all image areas (no negative space)
+    const totalImageArea = images.reduce((sum, img) => sum + img.trimWidth * img.trimHeight, 0);
+    const canvasArea = result.canvasWidth * result.canvasHeight;
+    expect(canvasArea).toBeGreaterThanOrEqual(totalImageArea);
+
+    // Smart layout should have tried multiple widths: canvas should not exceed the one-row baseline
+    const oneRowWidth = images.reduce((sum, img) => sum + img.trimWidth, 0) +
+      cmToPx(params.gap, params.dpi) * (images.length - 1);
+    expect(result.canvasWidth).toBeLessThanOrEqual(oneRowWidth);
   });
 });
