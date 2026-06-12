@@ -34,7 +34,7 @@ export function UploadArea({ onFilesSelected, isDragging }: UploadAreaProps) {
         ref={inputRef}
         type="file"
         multiple
-        accept=".png,.psd,image/png,image/vnd.adobe.photoshop"
+        accept=".png,.psd,.tif,.tiff,image/png,image/tiff,image/vnd.adobe.photoshop"
         className="hidden"
         onChange={handleChange}
         aria-label="上传图片文件"
@@ -58,7 +58,7 @@ export function UploadArea({ onFilesSelected, isDragging }: UploadAreaProps) {
           {isDragging ? '松开以上传' : '上传图片'}
         </span>
         <span className="text-[10px] text-lt-muted leading-tight mt-0.5">
-          PNG / PSD · 支持多选和文件夹拖拽
+          PNG / PSD / TIF · 支持多选和文件夹拖拽
         </span>
       </div>
 

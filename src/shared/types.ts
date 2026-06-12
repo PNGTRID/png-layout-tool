@@ -102,3 +102,17 @@ export interface LayoutResult {
   /** All placed layout cells */
   cells: LayoutCell[];
 }
+
+/**
+ * Template controlling how a print quantity is recognised from a file/layer name.
+ * Surfaced in Settings so users with different naming conventions can adjust
+ * (e.g. "宽七-22个.png" vs "logo_5pcs").
+ */
+export interface QuantityTemplate {
+  /** Master switch — when false, no quantity is parsed from names */
+  enabled: boolean;
+  /** Quantifier suffixes, comma-separated (e.g. "个,张,份,pcs") */
+  suffixes: string;
+  /** Whether the number comes before ("22个") or after ("pcs22") the suffix */
+  numberPosition: 'before' | 'after';
+}

@@ -5,16 +5,21 @@ import { useLayout } from './hooks/useLayout';
 import { useDragDrop } from './hooks/useDragDrop';
 import { renderToCanvas, exportPNG } from './lib/export-png';
 import { exportPSD } from './lib/export-psd';
+import { exportTIF } from './lib/export-tif';
 import type { ExportProgressCallback } from './lib/export-psd';
 import { clearImageCache, evictImage } from './lib/image-cache';
+import { parseQuantityFromName } from './lib/quantity-parser';
 import { Toolbar } from './components/Toolbar';
 import { ControlPanel } from './components/ControlPanel';
 import { UploadArea } from './components/UploadArea';
 import { ImageList } from './components/ImageList';
 import { LayoutCanvas } from './components/LayoutCanvas';
 import { ToastContainer, showToast } from './components/Toast';
+import { ExportProgressOverlay, setExportProgress, type ExportFormat } from './components/ExportProgressOverlay';
 import { UpdateDialog } from './components/UpdateDialog';
+import { SettingsDialog } from './components/SettingsDialog';
 import { useAppUpdater } from './hooks/useAppUpdater';
+import { useAppSettings } from './hooks/useAppSettings';
 import { platformAPI } from './shared/ipc';
 
 /** Map technical error messages to user-friendly Chinese text */
@@ -22,6 +27,7 @@ function friendlyErrorMessage(err: unknown, context: string): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes('2d context')) return `${context}失败：渲染引擎初始化错误，请重启应用`;
   if (msg.includes('PNG blob')) return `${context}失败：图像压缩错误`;
+  if (msg.includes('getImageData') || msg.includes('encode') || msg.includes('TIFF')) return `${context}失败：图像编码错误`;
   if (msg.includes('write') || msg.includes('保存')) return `${context}失败：文件写入错误，请检查磁盘空间`;
   if (msg.includes('cancelled') || msg.includes('取消')) return `${context}已取消`;
   return `${context}失败：${msg}`;
@@ -42,14 +48,22 @@ function App() {
     setActionSeq();
   }, []);
 
-  // Images hook — onAction pushes to unified action log
-  const { images, isProcessing, addFiles, removeImage, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages(recordImageAction);
+  // App settings (filename-quantity recognition, persisted to localStorage)
+  const { settings, updateSettings } = useAppSettings();
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const resolveQuantity = useCallback(
+    (name: string) => parseQuantityFromName(name, settings.quantityTemplate),
+    [settings.quantityTemplate],
+  );
+
+  // Images hook — onAction pushes to unified action log; resolveQuantity auto-sets copies from filenames
+  const { images, isProcessing, addFiles, removeImage, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages(recordImageAction, { resolveQuantity });
   const { params, layout, warnings, updateParam, relayout, updatePosition, beginPositionEdit, undoPosition, redoPosition } = useLayout(images);
   const { isDragging } = useDragDrop({ onFilesDropped: addFiles });
   const updater = useAppUpdater();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState<string | null>(null);
+  const exportFormatRef = useRef<ExportFormat>('PNG');
 
   // Unified undo/redo — dispatches to the correct history stack based on action log
   const canUndo = actionLogRef.current.length > 0;
@@ -140,25 +154,22 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [canUndo, canRedo, handleUndo, handleRedo]);
 
-  // Shared progress callback for exports
+  // Shared progress callback for exports — pushes to the overlay's imperative
+  // store, so per-cell progress updates never trigger an App re-render (which
+  // would re-render the whole image list on every cell during large exports).
   const onExportProgress: ExportProgressCallback = useCallback((phase, current, total) => {
     if (phase === 'done') {
       setExportProgress(null);
     } else {
-      const phaseLabel: Record<string, string> = {
-        render: '渲染图层',
-        compress: '压缩图像',
-        write: '生成文件',
-        save: '保存文件',
-      };
-      const label = phaseLabel[phase] || phase;
-      setExportProgress(`${label} ${current}/${total}`);
+      setExportProgress({ format: exportFormatRef.current, phase, current, total });
     }
   }, []);
 
   const handleExportPNG = useCallback(async () => {
     if (images.length === 0 || layout.cells.length === 0) return;
+    exportFormatRef.current = 'PNG';
     setIsExporting(true);
+    setExportProgress({ format: 'PNG', phase: 'prepare', current: 0, total: 0 });
     const t0 = performance.now();
     try {
       const canvas = canvasRef.current;
@@ -192,7 +203,9 @@ function App() {
 
   const handleExportPSD = useCallback(async () => {
     if (images.length === 0 || layout.cells.length === 0) return;
+    exportFormatRef.current = 'PSD';
     setIsExporting(true);
+    setExportProgress({ format: 'PSD', phase: 'prepare', current: 0, total: 0 });
     const t0 = performance.now();
     try {
       const result = await platformAPI.showSaveDialog({
@@ -215,6 +228,42 @@ function App() {
       setExportProgress(null);
     }
   }, [images, layout, params, onExportProgress]);
+
+  const handleExportTIF = useCallback(async () => {
+    if (images.length === 0 || layout.cells.length === 0) return;
+    exportFormatRef.current = 'TIF';
+    setIsExporting(true);
+    setExportProgress({ format: 'TIF', phase: 'prepare', current: 0, total: 0 });
+    const t0 = performance.now();
+    try {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        showToast('error', '导出失败：画布未就绪，请重试');
+        return;
+      }
+
+      await renderToCanvas(canvas, layout, images, params.backgroundColor, onExportProgress, params.showCropMarks, params.dpi);
+
+      const result = await platformAPI.showSaveDialog({
+        defaultPath: 'layout.tif',
+        filters: [{ name: 'TIFF 图片', extensions: ['tif', 'tiff'] }],
+      });
+
+      if (!result) {
+        return;
+      }
+
+      await exportTIF(canvas, result, params.dpi, onExportProgress);
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      showToast('success', `TIF 已导出: ${result.split('/').pop() || result.split('\\').pop()} (${elapsed}s)`);
+    } catch (err) {
+      console.error('[export] TIF failed:', err);
+      showToast('error', friendlyErrorMessage(err, '导出 TIF'));
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+    }
+  }, [images, layout, params.backgroundColor, params.dpi, params.showCropMarks, onExportProgress]);
 
   // Wrap removeImage to also evict from image cache
   const handleRemoveImage = useCallback((id: string) => {
@@ -239,6 +288,19 @@ function App() {
     <div className="flex h-screen w-screen flex-col bg-lt-bg text-lt-text select-none overflow-hidden">
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* Settings dialog (filename-quantity recognition, etc.) */}
+      {settingsVisible && (
+        <SettingsDialog
+          initial={settings}
+          onSave={(next) => {
+            updateSettings(() => next);
+            setSettingsVisible(false);
+            showToast('info', '设置已保存');
+          }}
+          onClose={() => setSettingsVisible(false)}
+        />
+      )}
 
       {/* Update dialog */}
       {updater.updateAvailable && updater.updateInfo && (
@@ -267,12 +329,17 @@ function App() {
         </div>
       )}
 
+      {/* Export progress overlay — driven by the imperative setExportProgress store */}
+      <ExportProgressOverlay />
+
       {/* Top Toolbar */}
       <Toolbar
         onExportPNG={handleExportPNG}
         onExportPSD={handleExportPSD}
+        onExportTIF={handleExportTIF}
         onClear={handleClearAll}
         onRelayout={handleRelayout}
+        onOpenSettings={() => setSettingsVisible(true)}
         hasImages={hasImages && !isExporting}
         checkingUpdate={updater.checking}
         onCheckUpdate={async () => {
@@ -381,14 +448,6 @@ function App() {
             </div>
           )}
 
-          {/* Exporting indicator with progress */}
-          {isExporting && (
-            <div className="border-t border-lt-border bg-accent-50 px-4 py-2 text-center">
-              <span className="text-xs text-accent-600 animate-pulse">
-                {exportProgress || '正在导出...'}
-              </span>
-            </div>
-          )}
         </aside>
       </div>
 

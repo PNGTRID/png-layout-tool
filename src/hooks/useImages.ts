@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { UploadedImage } from '../shared/types';
-import { MAX_FILE_SIZE_MB } from '../shared/constants';
+import { MAX_FILE_SIZE_MB, MAX_QUANTITY_PER_IMAGE } from '../shared/constants';
 import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
+import { loadTiffImage } from '../lib/tif-loader';
 import { clearImageCache } from '../lib/image-cache';
 import { showToast } from '../components/Toast';
 import { useUndoRedo } from './useUndoRedo';
@@ -43,7 +44,11 @@ async function parallelLimit<T>(
   return results;
 }
 
-export function useImages(onAction?: () => void) {
+export function useImages(
+  onAction?: () => void,
+  options?: { resolveQuantity?: (name: string) => number | null },
+) {
+  const resolveQuantity = options?.resolveQuantity;
   const [images, setImages, undoRedo] = useUndoRedo<UploadedImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -53,8 +58,7 @@ export function useImages(onAction?: () => void) {
     setIsProcessing(true);
     try {
       const fileArray = Array.from(files).filter(f =>
-        f.type === 'image/png' || f.name.toLowerCase().endsWith('.png') ||
-        f.name.toLowerCase().endsWith('.psd')
+        f.type === 'image/png' || /\.(png|psd|tif|tiff)$/i.test(f.name)
       );
 
       if (fileArray.length === 0) {
@@ -77,11 +81,15 @@ export function useImages(onAction?: () => void) {
       // Load files with bounded concurrency, collecting errors per file
       const failedFiles: string[] = [];
       const loadTasks = validFiles.map(f => {
-        const isPsd = f.name.toLowerCase().endsWith('.psd');
+        const lower = f.name.toLowerCase();
+        const isPsd = lower.endsWith('.psd');
+        const isTif = lower.endsWith('.tif') || lower.endsWith('.tiff');
         return () =>
           (isPsd
             ? loadPsdAsImages(f)
-            : loadImageInfo(f).then(img => [img])
+            : isTif
+              ? loadTiffImage(f).then(img => [img])
+              : loadImageInfo(f).then(img => [img])
           ).catch(err => {
             failedFiles.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
             return [] as UploadedImage[];
@@ -97,6 +105,16 @@ export function useImages(onAction?: () => void) {
       }
 
       if (newImages.length > 0) {
+        // Apply filename-quantity recognition — PNG file names and PSD layer
+        // names both surface as img.name, so a single resolver covers both.
+        if (resolveQuantity) {
+          for (const img of newImages) {
+            const q = resolveQuantity(img.name);
+            if (q !== null && q >= 1) {
+              img.quantity = Math.min(q, MAX_QUANTITY_PER_IMAGE);
+            }
+          }
+        }
         setImages(prev => [...prev, ...newImages]);
         onAction?.();
       }
@@ -106,7 +124,7 @@ export function useImages(onAction?: () => void) {
     } finally {
       setIsProcessing(false);
     }
-  }, [onAction, setImages]);
+  }, [onAction, setImages, resolveQuantity]);
 
   const removeImage = useCallback((id: string) => {
     setImages(prev => prev.filter(i => i.id !== id));
@@ -130,13 +148,13 @@ export function useImages(onAction?: () => void) {
 
   const updateQuantity = useCallback((id: string, quantity: number) => {
     setImages(prev => prev.map(img =>
-      img.id === id ? { ...img, quantity: Math.max(1, Math.min(99, quantity)) } : img
+      img.id === id ? { ...img, quantity: Math.max(1, Math.min(MAX_QUANTITY_PER_IMAGE, quantity)) } : img
     ));
     onAction?.();
   }, [onAction, setImages]);
 
   const batchUpdateQuantity = useCallback((ids: string[], quantity: number) => {
-    const q = Math.max(1, Math.min(99, quantity));
+    const q = Math.max(1, Math.min(MAX_QUANTITY_PER_IMAGE, quantity));
     const idSet = new Set(ids);
     setImages(prev => prev.map(img =>
       idSet.has(img.id) ? { ...img, quantity: q } : img

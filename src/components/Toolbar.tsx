@@ -1,8 +1,9 @@
-import { Trash2, Layers, ImagePlus, FileImage, LayoutGrid, RefreshCw, Undo2, Redo2 } from 'lucide-react';
+import { Trash2, Layers, ImagePlus, FileImage, FileType, LayoutGrid, RefreshCw, Undo2, Redo2, Settings } from 'lucide-react';
 
 interface ToolbarProps {
   onExportPNG: () => void;
   onExportPSD: () => void;
+  onExportTIF: () => void;
   onClear: () => void;
   onRelayout: () => void;
   hasImages: boolean;
@@ -12,9 +13,10 @@ interface ToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImages, checkingUpdate, onCheckUpdate, canUndo, canRedo, onUndo, onRedo }: ToolbarProps) {
+export function Toolbar({ onExportPNG, onExportPSD, onExportTIF, onClear, onRelayout, hasImages, checkingUpdate, onCheckUpdate, canUndo, canRedo, onUndo, onRedo, onOpenSettings }: ToolbarProps) {
   return (
     <div className="flex h-12 items-center justify-between border-b border-lt-border bg-white px-4">
       {/* Left: App branding */}
@@ -93,6 +95,19 @@ export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImag
           PSD
         </button>
 
+        {/* Export TIF */}
+        <button
+          onClick={onExportTIF}
+          disabled={!hasImages}
+          className="flex items-center gap-1.5 rounded-lg border border-lt-border bg-white px-3 py-1.5 text-xs
+                     text-lt-sub shadow-sm transition-all hover:bg-lt-hover hover:text-lt-text hover:border-lt-sub/30
+                     active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          title="导出为 TIFF 图片（透明）"
+        >
+          <FileType className="h-3.5 w-3.5" />
+          TIF
+        </button>
+
         <div className="mx-0.5 h-5 w-px bg-lt-border" />
 
         {/* Clear all */}
@@ -106,6 +121,21 @@ export function Toolbar({ onExportPNG, onExportPSD, onClear, onRelayout, hasImag
           aria-label="清空所有图片"
         >
           <Trash2 className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="mx-0.5 h-5 w-px bg-lt-border" />
+
+        {/* Settings (quantity recognition, etc.) */}
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-lt-muted
+                     transition-all hover:bg-accent-50 hover:text-accent-600
+                     active:scale-[0.97]"
+          title="设置（数量识别等）"
+          aria-label="设置"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">设置</span>
         </button>
 
         <div className="mx-0.5 h-5 w-px bg-lt-border" />

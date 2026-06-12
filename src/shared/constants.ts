@@ -3,6 +3,8 @@
  * Centralises magic numbers that were previously scattered across modules.
  */
 
+import type { QuantityTemplate } from './types';
+
 // ─── Image processing ──────────────────────────────────────────────
 /** Maximum thumbnail dimension (px) — balances quality vs memory */
 export const MAX_THUMB_SIZE = 200;
@@ -131,3 +133,18 @@ export const TOAST_AUTO_DISMISS_MS = 4000;
 
 /** Maximum simultaneous toast messages */
 export const TOAST_MAX_COUNT = 5;
+
+// ─── Quantity recognition ──────────────────────────────────────────
+/**
+ * Maximum quantity per image item — clamps both manual entry (stepper/input)
+ * and auto-recognition from filenames. Total layout cells are separately
+ * bounded by MAX_LAYOUT_ITEMS.
+ */
+export const MAX_QUANTITY_PER_IMAGE = 999;
+
+/** Default filename-quantity template — matches common naming like 宽七-22个.png */
+export const DEFAULT_QUANTITY_TEMPLATE: QuantityTemplate = {
+  enabled: true,
+  suffixes: '个,张,份,pcs,PSC',
+  numberPosition: 'before',
+};

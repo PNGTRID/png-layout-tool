@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, memo } from 'react';
 import { X, ImageIcon, Minus, Plus, RotateCcw, CheckSquare, Square, Check } from 'lucide-react';
 import type { UploadedImage } from '../shared/types';
+import { MAX_QUANTITY_PER_IMAGE } from '../shared/constants';
 
 interface ImageListProps {
   images: UploadedImage[];
@@ -125,8 +126,8 @@ const ImageCard = memo(function ImageCard({
             <Minus className="h-3 w-3" />
           </button>
           <input
-            type="number" min={1} max={99} value={img.quantity}
-            onChange={(e) => { const val = parseInt(e.target.value, 10); if (!isNaN(val) && val >= 1 && val <= 99) onUpdateQuantity(img.id, val); }}
+            type="number" min={1} max={MAX_QUANTITY_PER_IMAGE} value={img.quantity}
+            onChange={(e) => { const val = parseInt(e.target.value, 10); if (!isNaN(val) && val >= 1 && val <= MAX_QUANTITY_PER_IMAGE) onUpdateQuantity(img.id, val); }}
             className="w-9 border-x border-lt-border bg-white py-0 text-center text-xs font-bold text-accent-600 focus:outline-none"
           />
           <button
@@ -245,11 +246,11 @@ export function ImageList({ images, onRemove, onUpdateQuantity, onBatchUpdateQua
               className="flex h-6 w-6 items-center justify-center text-accent-600 hover:bg-accent-100">
               <Minus className="h-3 w-3" />
             </button>
-            <input type="number" min={1} max={99} value={batchQty}
-              onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setBatchQty(Math.min(99, v)); }}
+            <input type="number" min={1} max={MAX_QUANTITY_PER_IMAGE} value={batchQty}
+              onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setBatchQty(Math.min(MAX_QUANTITY_PER_IMAGE, v)); }}
               className="w-9 border-x border-accent-300 bg-white py-0 text-center text-xs font-bold text-accent-600 focus:outline-none"
             />
-            <button onClick={() => setBatchQty(q => Math.min(99, q + 1))}
+            <button onClick={() => setBatchQty(q => Math.min(MAX_QUANTITY_PER_IMAGE, q + 1))}
               className="flex h-6 w-6 items-center justify-center text-accent-600 hover:bg-accent-100">
               <Plus className="h-3 w-3" />
             </button>

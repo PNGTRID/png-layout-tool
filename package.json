@@ -1,6 +1,6 @@
 {
   "name": "png-layout-tool",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "PNG 透明图片自动排版工具",
   "type": "module",
   "scripts": {
@@ -22,7 +22,8 @@
     "ag-psd": "^17.0.0",
     "lucide-react": "^0.300.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "utif": "^3.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
