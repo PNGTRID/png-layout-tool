@@ -26,7 +26,7 @@ export interface CmykLayer {
   height: number;
   left: number;
   top: number;
-  hasAlpha: boolean;
+  hasTransparency: boolean;
 }
 
 /**
@@ -108,7 +108,7 @@ function writeLayerAndMaskInfo(w: BinaryWriter, layers: CmykLayer[]): void {
       const c = compressChannel(layer.cmyka, ch, 5, layer.width, layer.height);
       chs.push({ id: ch, lengths: c.scanlineLengths, data: c.compressed });
     }
-    if (layer.hasAlpha) {
+    if (layer.hasTransparency) {
       const c = compressChannel(layer.cmyka, 4, 5, layer.width, layer.height);
       chs.push({ id: -1, lengths: c.scanlineLengths, data: c.compressed });
     }
@@ -136,25 +136,33 @@ function writeLayerAndMaskInfo(w: BinaryWriter, layers: CmykLayer[]): void {
 }
 
 /**
- * Build 'luni' (Unicode layer name) resource data for a layer.
- * PSD spec: resource ID 1005 → but for layer extra data we use the
- * "luni" key (Photoshop 7.0+). Format: uint32 char-count + UTF-16BE chars + uint16(0).
+ * Build 'luni' (Unicode layer name) additional-layer-information block.
+ *
+ * Adobe PSD spec — Additional Layer Information:
+ *   '8BIM'(4) + key(4) + u32(data length)(4) + data + (pad to even)
+ *
+ * For 'luni', data is a Unicode string (Photoshop 7.0+):
+ *   u32(char count incl. null terminator) + UTF-16BE chars + u16(0)
+ *
+ * Both the outer data-length and the inner char-count are required:
+ * the outer length lets strict parsers (and Photoshop) skip/align the block,
+ * the inner count is what ag-psd's readUnicodeString reads to recover the name.
  */
-function buildLuniResource(name: string): Uint8Array {
-  // Encode as UTF-16BE with BOM
+export function buildLuniResource(name: string): Uint8Array {
   const buf = new BinaryWriter();
-  buf.str('8BIM');
-  buf.str('luni');
-  buf.u8(0); buf.u8(0); // Pascal string padding
-  // UTF-16BE characters + null terminator
-  const chars = name.length + 1; // +1 for null terminator
-  buf.u32(chars * 2); // resource data length in bytes
+  buf.str('8BIM');             // signature
+  buf.str('luni');             // key
+  // data: u32(char count, 含 null) + UTF-16BE 字符 + u16(0) null。
+  // count 含 null 与 ag-psd readUnicodeString 约定一致（本项目用 ag-psd 读 PSD）。
+  const count = name.length + 1;
+  const dataLen = 4 + count * 2; // u32(count) + count 个 UTF-16BE 字符（末位为 null）
+  buf.u32(dataLen);            // 外层 data length（Adobe additional-layer-info 规范）
+  buf.u32(count);              // 内层字符数（含 null），ag-psd 据此读取
   for (let i = 0; i < name.length; i++) {
     buf.u16(name.charCodeAt(i));
   }
-  buf.u16(0); // null terminator
-  // Pad to even length
-  if ((chars * 2) % 2 !== 0) buf.u8(0);
+  buf.u16(0);                  // null terminator
+  // dataLen 始终为偶数（4 + 偶数），无需额外对齐 padding
   return buf.toUint8Array();
 }
 
@@ -271,7 +279,7 @@ function writeCompositeImageData(
  *   White RGBA(255,255,255) → CMYK(0,0,0,0) → inv(255,255,255,255) → 255×255/255 = 255 ✅
  *   Black RGBA(0,0,0,0)    → CMYK(0,0,0,1) → inv(255,255,255,0)   → 255×0/255   = 0   ✅
  */
-function cmykaToRgba(cmyka: Uint8Array, width: number, height: number): Uint8ClampedArray {
+export function cmykaToRgba(cmyka: Uint8Array, width: number, height: number): Uint8ClampedArray {
   const n = width * height;
   const rgba = new Uint8ClampedArray(n * 4);
   for (let p = 0; p < n; p++) {

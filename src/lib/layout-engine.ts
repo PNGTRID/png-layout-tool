@@ -11,6 +11,23 @@ export function pxToCmValue(px: number, dpi: number): number {
   return px * 2.54 / dpi;
 }
 
+/** 旋转角度类型（仅 90° 的整数倍） */
+export type RotationAngle = 0 | 90 | 180 | 270;
+
+/**
+ * 计算最终旋转角度：手动旋转 + 自动旋转（90° CW）。
+ * 旋转语义的单一真相源 —— drawRotatedImage 与 getEffectiveDimensions 共用此函数，
+ * 避免三处各自内联 `((rotation + (autoRotated ? 90 : 0)) % 360)` 产生不一致。
+ */
+export function resolveTotalRotation(rotation: RotationAngle, autoRotated: boolean): RotationAngle {
+  return ((rotation + (autoRotated ? 90 : 0)) % 360) as RotationAngle;
+}
+
+/** 90° / 270° 旋转会使宽高互换 */
+export function isDimensionSwap(rotation: RotationAngle): boolean {
+  return rotation === 90 || rotation === 270;
+}
+
 /** 获取图片的有效排版尺寸（考虑用户自定义 cm 尺寸和旋转） */
 function getEffectiveDimensions(
   img: UploadedImage,
@@ -28,7 +45,7 @@ function getEffectiveDimensions(
   }
 
   // Rotation 90 or 270 swaps width and height
-  if (img.rotation === 90 || img.rotation === 270) {
+  if (isDimensionSwap(img.rotation)) {
     return { w: baseH, h: baseW };
   }
   return { w: baseW, h: baseH };

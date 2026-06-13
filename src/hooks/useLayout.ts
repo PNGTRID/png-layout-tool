@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 // layoutVersionRef is no longer needed — using useState instead
 import type { LayoutParams, LayoutResult, UploadedImage } from '../shared/types';
+import { DEFAULT_GAP_CM, DEFAULT_CANVAS_WIDTH_CM, DEFAULT_CANVAS_HEIGHT_CM, DEFAULT_DPI } from '../shared/constants';
 import { calculateLayout, LayoutResultWithWarnings } from '../lib/layout-engine';
 import {
   EMPTY_POSITION_HISTORY,
@@ -11,10 +12,10 @@ import {
 } from '../lib/position-history';
 
 const DEFAULT_PARAMS: LayoutParams = {
-  gap: 2,              // cm
-  canvasWidthCm: 57,    // cm
-  canvasHeightCm: 0,    // 0 = auto
-  dpi: 300,
+  gap: DEFAULT_GAP_CM,
+  canvasWidthCm: DEFAULT_CANVAS_WIDTH_CM,
+  canvasHeightCm: DEFAULT_CANVAS_HEIGHT_CM,
+  dpi: DEFAULT_DPI,
   autoRotate: false,
   backgroundColor: null,
   showCropMarks: false,

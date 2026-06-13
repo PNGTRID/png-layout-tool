@@ -44,6 +44,7 @@ function mockWriteFile() {
   const api: IPlatformAPI = {
     showSaveDialog: async () => 'out.tif',
     writeFile,
+    openWritable: async () => { throw new Error('流式导出在测试中不可用'); },
     checkForUpdate: async () => null,
     relaunch: async () => {},
   };

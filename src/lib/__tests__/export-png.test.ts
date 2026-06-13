@@ -70,6 +70,7 @@ describe('exportPNG — DPI pHYs injection', () => {
     const mock: IPlatformAPI = {
       showSaveDialog: async () => 'test.png',
       writeFile: async (_p, data) => { captured = data; },
+      openWritable: async () => { throw new Error('流式导出在测试中不可用'); },
       checkForUpdate: async () => null,
       relaunch: async () => {},
     };
@@ -87,6 +88,7 @@ describe('exportPNG — DPI pHYs injection', () => {
       setPlatformAPI({
         showSaveDialog: async () => 'test.png',
         writeFile: async (_p, data) => { captured = data; },
+        openWritable: async () => { throw new Error('流式导出在测试中不可用'); },
         checkForUpdate: async () => null,
         relaunch: async () => {},
       });
@@ -112,6 +114,7 @@ describe('exportPNG — DPI pHYs injection', () => {
     setPlatformAPI({
       showSaveDialog: async () => 'test.png',
       writeFile: async (_p, data) => { captured = data; },
+      openWritable: async () => { throw new Error('流式导出在测试中不可用'); },
       checkForUpdate: async () => null,
       relaunch: async () => {},
     });

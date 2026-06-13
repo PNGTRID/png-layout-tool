@@ -11,7 +11,7 @@ import type { ExportProgressCallback } from './export-psd';
 /**
  * Check if a cell overlaps with a horizontal strip [stripY, stripY + stripH).
  */
-function cellOverlapsStrip(cell: LayoutCell, stripY: number, stripH: number): boolean {
+export function cellOverlapsStrip(cell: LayoutCell, stripY: number, stripH: number): boolean {
   const cellBottom = cell.y + cell.drawHeight;
   const stripBottom = stripY + stripH;
   return cell.y < stripBottom && cellBottom > stripY;
@@ -21,7 +21,7 @@ function cellOverlapsStrip(cell: LayoutCell, stripY: number, stripH: number): bo
  * Render a single horizontal strip of the layout onto a canvas.
  * Only draws cells that overlap with the strip region.
  */
-async function renderStrip(
+export async function renderStrip(
   stripCanvas: HTMLCanvasElement,
   layout: LayoutResult,
   images: UploadedImage[],
@@ -58,15 +58,22 @@ async function renderStrip(
     const imgData = imageMap.get(cell.imageId);
     if (!imgData) continue;
 
-    const img = await loadImage(imgData.objectUrl);
-    const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
+    try {
+      const img = await loadImage(imgData.objectUrl);
+      const { trimX, trimY, trimW, trimH } = getSrcCropRect(cell);
 
-    drawRotatedImage(
-      ctx, img,
-      cell.x, cell.y, cell.drawWidth, cell.drawHeight,
-      trimX, trimY, trimW, trimH,
-      imgData.rotation, cell.rotated
-    );
+      drawRotatedImage(
+        ctx, img,
+        cell.x, cell.y, cell.drawWidth, cell.drawHeight,
+        trimX, trimY, trimW, trimH,
+        imgData.rotation, cell.rotated
+      );
+    } catch (err) {
+      console.error(`[export-png] Strip cell render failed: ${imgData.name}`, err);
+      // 失败 cell 画红色占位（与 renderToCanvas 小布局分支的容错一致）
+      ctx.fillStyle = COLOR_ERROR_FILL;
+      ctx.fillRect(cell.x, cell.y, cell.drawWidth, cell.drawHeight);
+    }
   }
 
   ctx.restore();
@@ -315,10 +322,18 @@ const CRC_TABLE = (() => {
 
 /** Compute CRC32 over a range of a Uint8Array */
 function crc32(data: Uint8Array, start: number, length: number): number {
-  let crc = 0xFFFFFFFF;
+  return (crc32Update(0xFFFFFFFF, data, start, length) ^ 0xFFFFFFFF) >>> 0;
+}
+
+/**
+ * CRC32 分段累加（PNG 多项式 0xEDB88320）。传入中间 crc（首段起算 0xFFFFFFFF），
+ * 返回未做最终 xor 的中间值，便于跨多个缓冲段累加（如 PNG chunk 的 type + data）。
+ * 最终 CRC = `(crc32Update(...) ^ 0xFFFFFFFF) >>> 0`。
+ */
+export function crc32Update(crc: number, data: Uint8Array, start: number, length: number): number {
   const end = start + length;
   for (let i = start; i < end; i++) {
     crc = CRC_TABLE[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
   }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
+  return crc >>> 0;
 }

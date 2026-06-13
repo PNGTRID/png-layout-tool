@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { UploadedImage } from '../shared/types';
-import { MAX_FILE_SIZE_MB, MAX_QUANTITY_PER_IMAGE } from '../shared/constants';
+import { MAX_FILE_SIZE_MB, MAX_PSD_SIZE_MB, MAX_QUANTITY_PER_IMAGE } from '../shared/constants';
 import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
 import { loadTiffImage } from '../lib/tif-loader';
@@ -52,6 +52,11 @@ export function useImages(
   const [images, setImages, undoRedo] = useUndoRedo<UploadedImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Mirror images into a ref so stable callbacks (clearAll, unmount cleanup)
+  // read the latest list without being recreated on every change.
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+
   const addFiles = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
 
@@ -66,13 +71,14 @@ export function useImages(
         return;
       }
 
-      // Enforce file size limit
-      const oversized = fileArray.filter(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+      // Enforce file size limit — PSD has a lower cap (parsing needs ~5× memory)
+      const sizeLimitMb = (f: File) => (/\.psd$/i.test(f.name) ? MAX_PSD_SIZE_MB : MAX_FILE_SIZE_MB);
+      const oversized = fileArray.filter(f => f.size > sizeLimitMb(f) * 1024 * 1024);
       if (oversized.length > 0) {
-        const names = oversized.map(f => f.name).join(', ');
-        showToast('warning', `已跳过 ${oversized.length} 个超过 ${MAX_FILE_SIZE_MB}MB 的文件: ${names}`);
+        const names = oversized.map(f => f.name).slice(0, 3).join(', ');
+        showToast('warning', `已跳过 ${oversized.length} 个超大文件（PSD 上限 ${MAX_PSD_SIZE_MB}MB / 其他 ${MAX_FILE_SIZE_MB}MB）: ${names}`);
       }
-      const validFiles = fileArray.filter(f => f.size <= MAX_FILE_SIZE_MB * 1024 * 1024);
+      const validFiles = fileArray.filter(f => f.size <= sizeLimitMb(f) * 1024 * 1024);
       if (validFiles.length === 0) {
         setIsProcessing(false);
         return;
@@ -181,9 +187,6 @@ export function useImages(
   const totalQuantity = useMemo(() => images.reduce((sum, img) => sum + img.quantity, 0), [images]);
 
   // Cleanup: revoke all ObjectURLs and clear cache on unmount
-  const imagesRef = useRef(images);
-  imagesRef.current = images;
-
   useEffect(() => {
     return () => {
       for (const img of imagesRef.current) {

@@ -6,7 +6,11 @@ interface UseDragDropOptions {
 
 function isImageFile(file: File): boolean {
   const name = file.name.toLowerCase();
-  return file.type === 'image/png' || name.endsWith('.png') || name.endsWith('.psd');
+  return file.type === 'image/png' ||
+    name.endsWith('.png') ||
+    name.endsWith('.psd') ||
+    name.endsWith('.tif') ||
+    name.endsWith('.tiff');
 }
 
 const MAX_DIRECTORY_DEPTH = 10;

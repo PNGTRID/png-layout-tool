@@ -3,10 +3,9 @@ import { Settings, ImageIcon } from 'lucide-react';
 import { useImages } from './hooks/useImages';
 import { useLayout } from './hooks/useLayout';
 import { useDragDrop } from './hooks/useDragDrop';
-import { renderToCanvas, exportPNG } from './lib/export-png';
-import { exportPSD } from './lib/export-psd';
-import { exportTIF } from './lib/export-tif';
 import type { ExportProgressCallback } from './lib/export-psd';
+import { exportSegmented, computeSegmentStartYs, needsVerticalSegmenting } from './lib/export-segmented';
+import { exportStreamed } from './lib/export-streamed';
 import { clearImageCache, evictImage } from './lib/image-cache';
 import { parseQuantityFromName } from './lib/quantity-parser';
 import { Toolbar } from './components/Toolbar';
@@ -30,6 +29,10 @@ function friendlyErrorMessage(err: unknown, context: string): string {
   if (msg.includes('getImageData') || msg.includes('encode') || msg.includes('TIFF')) return `${context}失败：图像编码错误`;
   if (msg.includes('write') || msg.includes('保存')) return `${context}失败：文件写入错误，请检查磁盘空间`;
   if (msg.includes('cancelled') || msg.includes('取消')) return `${context}已取消`;
+  // 兜底：保留原始 message；若有 cause 链，输出到控制台辅助诊断（UI 不展示底层堆栈）
+  if (err instanceof Error && err.cause) {
+    console.error(`[export] ${context} 原始错误链:`, err.cause);
+  }
   return `${context}失败：${msg}`;
 }
 
@@ -165,105 +168,69 @@ function App() {
     }
   }, []);
 
-  const handleExportPNG = useCallback(async () => {
+  // 分块多文件导出统一编排：先选保存路径，再按段渲染+导出。
+  // 超长画布（高度 > EXPORT_SEGMENT_MAX_PX）自动垂直分块，每段一个文件。
+  const runExport = useCallback(async (
+    format: ExportFormat,
+    defaultPath: string,
+    filters: { name: string; extensions: string[] }[],
+  ) => {
     if (images.length === 0 || layout.cells.length === 0) return;
-    exportFormatRef.current = 'PNG';
+    exportFormatRef.current = format;
     setIsExporting(true);
-    setExportProgress({ format: 'PNG', phase: 'prepare', current: 0, total: 0 });
+    setExportProgress({ format, phase: 'prepare', current: 0, total: 0 });
     const t0 = performance.now();
     try {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        showToast('error', '导出失败：画布未就绪，请重试');
+      const result = await platformAPI.showSaveDialog({ defaultPath, filters });
+      if (!result) return;
+
+      const fileName = result.split('/').pop() || result.split('\\').pop();
+
+      // 超长画布 + TIF / PNG(需 CompressionStream) → 流式单文件；其余 → 分块多文件 / 整图单文件
+      // PNG 在不支持 CompressionStream 的环境降级到分块多文件
+      if (needsVerticalSegmenting(layout.canvasHeight) &&
+          (format === 'TIF' || (format === 'PNG' && 'CompressionStream' in window))) {
+        showToast('info', '画布过高，采用流式导出为单个文件，请稍候');
+        await exportStreamed(format, layout, images, params, result, onExportProgress);
+        const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+        showToast('success', `${format} 已导出: ${fileName} (${elapsed}s)`);
         return;
       }
 
-      await renderToCanvas(canvas, layout, images, params.backgroundColor, onExportProgress, params.showCropMarks, params.dpi);
-
-      const result = await platformAPI.showSaveDialog({
-        defaultPath: 'layout.png',
-        filters: [{ name: 'PNG 图片', extensions: ['png'] }],
-      });
-
-      if (!result) {
-        return;
+      const segCount = computeSegmentStartYs(layout.canvasHeight).length;
+      if (segCount > 1) {
+        showToast('info', `画布过高，将拆分为 ${segCount} 个文件依次导出`);
       }
-
-      await exportPNG(canvas, result, params.dpi, onExportProgress);
+      const { segmentCount, outputDir } = await exportSegmented(format, layout, images, params, result, onExportProgress);
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-      showToast('success', `PNG 已导出: ${result.split('/').pop() || result.split('\\').pop()} (${elapsed}s)`);
-    } catch (err) {
-      console.error('[export] PNG failed:', err);
-      showToast('error', friendlyErrorMessage(err, '导出 PNG'));
-    } finally {
-      setIsExporting(false);
-      setExportProgress(null);
-    }
-  }, [images, layout, params.backgroundColor, params.dpi, params.showCropMarks, onExportProgress]);
-
-  const handleExportPSD = useCallback(async () => {
-    if (images.length === 0 || layout.cells.length === 0) return;
-    exportFormatRef.current = 'PSD';
-    setIsExporting(true);
-    setExportProgress({ format: 'PSD', phase: 'prepare', current: 0, total: 0 });
-    const t0 = performance.now();
-    try {
-      const result = await platformAPI.showSaveDialog({
-        defaultPath: 'layout.psd',
-        filters: [{ name: 'Photoshop 文件', extensions: ['psd'] }],
-      });
-
-      if (!result) {
-        return;
+      if (segmentCount > 1) {
+        showToast('success', `${format} 已导出 ${segmentCount} 个文件到 ${outputDir || '所选目录'} (${elapsed}s)`);
+      } else {
+        showToast('success', `${format} 已导出: ${fileName} (${elapsed}s)`);
       }
-
-      await exportPSD(layout, images, params, result, onExportProgress);
-      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-      showToast('success', `PSD 已导出: ${result.split('/').pop() || result.split('\\').pop()} (${elapsed}s)`);
     } catch (err) {
-      console.error('[export] PSD failed:', err);
-      showToast('error', friendlyErrorMessage(err, '导出 PSD'));
+      console.error(`[export] ${format} failed:`, err);
+      showToast('error', friendlyErrorMessage(err, `导出 ${format}`));
     } finally {
       setIsExporting(false);
       setExportProgress(null);
     }
   }, [images, layout, params, onExportProgress]);
 
-  const handleExportTIF = useCallback(async () => {
-    if (images.length === 0 || layout.cells.length === 0) return;
-    exportFormatRef.current = 'TIF';
-    setIsExporting(true);
-    setExportProgress({ format: 'TIF', phase: 'prepare', current: 0, total: 0 });
-    const t0 = performance.now();
-    try {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        showToast('error', '导出失败：画布未就绪，请重试');
-        return;
-      }
+  const handleExportPNG = useCallback(
+    () => runExport('PNG', 'layout.png', [{ name: 'PNG 图片', extensions: ['png'] }]),
+    [runExport],
+  );
 
-      await renderToCanvas(canvas, layout, images, params.backgroundColor, onExportProgress, params.showCropMarks, params.dpi);
+  const handleExportPSD = useCallback(
+    () => runExport('PSD', 'layout.psd', [{ name: 'Photoshop 文件', extensions: ['psd'] }]),
+    [runExport],
+  );
 
-      const result = await platformAPI.showSaveDialog({
-        defaultPath: 'layout.tif',
-        filters: [{ name: 'TIFF 图片', extensions: ['tif', 'tiff'] }],
-      });
-
-      if (!result) {
-        return;
-      }
-
-      await exportTIF(canvas, result, params.dpi, onExportProgress);
-      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-      showToast('success', `TIF 已导出: ${result.split('/').pop() || result.split('\\').pop()} (${elapsed}s)`);
-    } catch (err) {
-      console.error('[export] TIF failed:', err);
-      showToast('error', friendlyErrorMessage(err, '导出 TIF'));
-    } finally {
-      setIsExporting(false);
-      setExportProgress(null);
-    }
-  }, [images, layout, params.backgroundColor, params.dpi, params.showCropMarks, onExportProgress]);
+  const handleExportTIF = useCallback(
+    () => runExport('TIF', 'layout.tif', [{ name: 'TIFF 图片', extensions: ['tif', 'tiff'] }]),
+    [runExport],
+  );
 
   // Wrap removeImage to also evict from image cache
   const handleRemoveImage = useCallback((id: string) => {
@@ -324,7 +291,7 @@ function App() {
               <ImageIcon className="h-7 w-7 text-white" />
             </div>
             <p className="text-base font-medium text-accent-600">松开以添加图片</p>
-            <p className="text-xs text-lt-muted">PNG / PSD · 支持文件夹</p>
+            <p className="text-xs text-lt-muted">PNG / PSD / TIF · 支持文件夹</p>
           </div>
         </div>
       )}

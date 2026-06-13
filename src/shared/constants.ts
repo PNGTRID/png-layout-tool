@@ -19,6 +19,13 @@ export const MAX_IMAGE_DIMENSION = 16384;
 export const MAX_FILE_SIZE_MB = 200;
 
 /**
+ * Maximum PSD file size (MB) — PSD parsing allocates ~5× memory, so the cap is
+ * lower than for plain images. Centralised here so useImages (entry guard) and
+ * psd-loader agree, avoiding "passes the entry check but rejected at parse" gaps.
+ */
+export const MAX_PSD_SIZE_MB = MAX_FILE_SIZE_MB * 0.5;
+
+/**
  * Maximum canvas pixel budget for PREVIEW rendering only (width × height).
  * Does NOT affect export — export always uses full resolution for print quality.
  * ~100M pixels ≈ 400MB RGBA — keeps the UI responsive without crashing.
@@ -46,12 +53,31 @@ export const MAX_CACHE_SIZE = 200;
 /** Maximum height (px) per rendering strip for large canvas export */
 export const STRIP_HEIGHT = 4096;
 
+/**
+ * Maximum canvas dimension (px) per export segment. Super-tall canvases
+ * (e.g. 2000cm @ 300DPI = 236220px) far exceed the WebView canvas 32767px
+ * single-side hard limit, so they are split vertically into multiple files,
+ * each ≤ this size. Tuned close to (but below) the limit to minimise segment
+ * count; lower to 28000/25000 if a specific GPU/WebView proves unstable.
+ */
+export const EXPORT_SEGMENT_MAX_PX = 30000;
+
 // ─── Layout engine ─────────────────────────────────────────────────
 /** Maximum canvas height (px) — bounded to prevent runaway memory */
 export const MAX_CANVAS_HEIGHT = 100_000;
 
 /** Maximum number of layout items (images × quantity) — prevents O(n²) freeze */
 export const MAX_LAYOUT_ITEMS = 2000;
+
+// ─── Layout defaults ───────────────────────────────────────────────
+/** Default gap between images (cm) */
+export const DEFAULT_GAP_CM = 2;
+/** Default canvas width (cm); 0 = auto-fit to content */
+export const DEFAULT_CANVAS_WIDTH_CM = 57;
+/** Default canvas height (cm); 0 = auto-fit to content */
+export const DEFAULT_CANVAS_HEIGHT_CM = 0;
+/** Default output resolution (DPI) */
+export const DEFAULT_DPI = 300;
 
 /**
  * Item count above which the smart-layout candidate-width search is narrowed.

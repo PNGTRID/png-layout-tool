@@ -76,6 +76,64 @@ async function readPngDpi(file: File): Promise<number | null> {
   return null;
 }
 
+/** PNG 8-byte file signature */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * PNG 元数据 chunk（文本 / EXIF / 时间戳）——非渲染必需，剥离后不影响图像显示。
+ * 其余 chunk（IHDR/IDAT/IEND/PLTE/tRNS/pHYs/iCCP/cHRM/gAMA/sRGB/bKGD 等）一律保留，
+ * 避免误伤色彩配置与调色板数据。CRC 随 chunk 原样保留，无需重算。
+ */
+const STRIPPABLE_CHUNKS = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME']);
+
+/**
+ * 剥离 PNG 中的元数据 chunk，返回精简后的 Blob。
+ *
+ * 某些 PNG（如 Photoshop 反复编辑的设计稿）携带几十 MB 的 XMP 元数据（iTXt），
+ * 远大于真实图像数据，导致浏览器 `Image` 解码时内存溢出或超时而 `onerror`。
+ * 本函数仅移除这些非渲染必需的文本块，保留全部图像 / 色彩 / 物理数据。
+ *
+ * @returns 清洗后的 Blob；非 PNG 或无可剥离元数据时返回 null（调用方退回使用原文件）
+ */
+export async function sanitizePng(file: File): Promise<Blob | null> {
+  // 先读签名判断是否 PNG，避免对非 PNG 全量读取
+  const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  for (let i = 0; i < 8; i++) {
+    if (head[i] !== PNG_SIGNATURE[i]) return null;
+  }
+
+  const data = new Uint8Array(await file.arrayBuffer());
+  const parts: Uint8Array[] = [data.subarray(0, 8)]; // 保留签名
+  let stripped = false;
+  let off = 8;
+
+  while (off + 8 <= data.length) {
+    const clen = (data[off] << 24) | (data[off + 1] << 16) | (data[off + 2] << 8) | data[off + 3];
+    const ctype = String.fromCharCode(data[off + 4], data[off + 5], data[off + 6], data[off + 7]);
+    const chunkEnd = off + 12 + clen;
+    if (clen < 0 || chunkEnd > data.length) break; // 损坏 / 截断，停止解析
+    if (STRIPPABLE_CHUNKS.has(ctype)) {
+      stripped = true; // 跳过该元数据 chunk
+    } else {
+      parts.push(data.subarray(off, chunkEnd)); // 原样保留（含 CRC）
+    }
+    if (ctype === 'IEND') break;
+    off = chunkEnd;
+  }
+
+  if (!stripped) return null; // 本来就没有可剥离的元数据，退回原文件
+
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const result = new Uint8Array(total);
+  let pos = 0;
+  for (const p of parts) {
+    result.set(p, pos);
+    pos += p.length;
+  }
+  console.info(`[image-loader] PNG 元数据已清洗: ${file.name} ${(file.size / 1024 / 1024).toFixed(1)}MB → ${(total / 1024 / 1024).toFixed(1)}MB`);
+  return new Blob([result], { type: 'image/png' });
+}
+
 /**
  * Scan image alpha channel to find the tight bounding box of non-transparent content.
  * Uses a two-phase approach for large images to avoid OOM:
@@ -271,43 +329,48 @@ export function processLoadedImage(img: HTMLImageElement, file: File, objectUrl:
 /** Load a single PNG file → UploadedImage */
 export function loadImageInfo(file: File): Promise<UploadedImage> {
   return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-
-    img.onload = async () => {
-      // Hard dimension limit — canvas API cannot handle images beyond this
-      if (img.width > MAX_IMAGE_DIMENSION || img.height > MAX_IMAGE_DIMENSION) {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error(`图片尺寸过大 (${img.width}×${img.height})，最大支持 ${MAX_IMAGE_DIMENSION}px`));
-        return;
-      }
-
-      // Process at FULL resolution — no downscaling for print quality
-      const result = processLoadedImage(img, file, objectUrl);
-
-      // Read PNG pHYs chunk to detect the image's intended physical dimensions
+    (async () => {
       const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
-      if (isPng) {
-        const imageDpi = await readPngDpi(file);
-        // Clamp DPI to a reasonable range (72–2400) to prevent absurd cm values
-        if (imageDpi && imageDpi >= MIN_VALID_DPI && imageDpi <= MAX_VALID_DPI) {
-          const wCm = parseFloat((result.trimWidth * 2.54 / imageDpi).toFixed(2));
-          const hCm = parseFloat((result.trimHeight * 2.54 / imageDpi).toFixed(2));
-          // Only set target cm when the computed size is within a printable range
-          if (wCm >= 0.1 && wCm <= 500 && hCm >= 0.1 && hCm <= 500) {
-            result.targetWidthCm = wCm;
-            result.targetHeightCm = hCm;
+      // 剥离 PNG 元数据 chunk（防超大 XMP/iTXt 导致浏览器解码失败）；
+      // 非 PNG 或无需清洗时 sanitizePng 返回 null，退回使用原文件
+      const sourceBlob: Blob = isPng ? (await sanitizePng(file)) ?? file : file;
+      const objectUrl = URL.createObjectURL(sourceBlob);
+      const img = new Image();
+
+      img.onload = async () => {
+        // Hard dimension limit — canvas API cannot handle images beyond this
+        if (img.width > MAX_IMAGE_DIMENSION || img.height > MAX_IMAGE_DIMENSION) {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error(`图片尺寸过大 (${img.width}×${img.height})，最大支持 ${MAX_IMAGE_DIMENSION}px`));
+          return;
+        }
+
+        // Process at FULL resolution — no downscaling for print quality
+        const result = processLoadedImage(img, file, objectUrl);
+
+        // Read PNG pHYs chunk to detect the image's intended physical dimensions
+        if (isPng) {
+          const imageDpi = await readPngDpi(file);
+          // Clamp DPI to a reasonable range (72–2400) to prevent absurd cm values
+          if (imageDpi && imageDpi >= MIN_VALID_DPI && imageDpi <= MAX_VALID_DPI) {
+            const wCm = parseFloat((result.trimWidth * 2.54 / imageDpi).toFixed(2));
+            const hCm = parseFloat((result.trimHeight * 2.54 / imageDpi).toFixed(2));
+            // Only set target cm when the computed size is within a printable range
+            if (wCm >= 0.1 && wCm <= 500 && hCm >= 0.1 && hCm <= 500) {
+              result.targetWidthCm = wCm;
+              result.targetHeightCm = hCm;
+            }
           }
         }
-      }
 
-      resolve(result);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error(`无法加载图片: ${file.name}`));
-    };
+        resolve(result);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(`无法加载图片: ${file.name}`));
+      };
 
-    img.src = objectUrl;
+      img.src = objectUrl;
+    })().catch(reject);
   });
 }

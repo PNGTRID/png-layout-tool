@@ -1,3 +1,5 @@
+import { resolveTotalRotation } from './layout-engine';
+
 /**
  * Draw an image with rotation support (0, 90, 180, 270 degrees).
  * Handles the canvas transform and swapped dimensions automatically.
@@ -29,8 +31,8 @@ export function drawRotatedImage(
   rotation: 0 | 90 | 180 | 270,
   autoRotated: boolean
 ): void {
-  // Compute total rotation: manual + auto
-  const totalRotation = ((rotation + (autoRotated ? 90 : 0)) % 360) as 0 | 90 | 180 | 270;
+  // Compute total rotation: manual + auto (single source of truth — layout-engine.resolveTotalRotation)
+  const totalRotation = resolveTotalRotation(rotation, autoRotated);
 
   ctx.save();
 

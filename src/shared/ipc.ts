@@ -30,9 +30,25 @@ export interface UpdateCheckResult {
   downloadAndInstall(onEvent: (e: UpdateDownloadEvent) => void): Promise<void>;
 }
 
+/**
+ * 可写文件流句柄（中立接口，lib 层不直接依赖 FsFile）。
+ * 包装 Tauri 的 FsFile：顺序 write 追加、seek 绝对偏移、close 关闭。
+ * 用于流式导出超大文件（分块写盘 + 偏移回填），不持有整文件 Uint8Array。
+ */
+export interface WritableFileHandle {
+  /** 顺序追加字节，返回写入字节数（内部指针前移） */
+  write(data: Uint8Array): Promise<number>;
+  /** 定位到绝对偏移（文件起始为 0），返回新偏移 */
+  seek(offset: number): Promise<number>;
+  /** 关闭句柄，刷新并释放资源 */
+  close(): Promise<void>;
+}
+
 export interface IPlatformAPI {
   showSaveDialog(options: SaveDialogOptions): Promise<string | null>;
   writeFile(filePath: string, data: Uint8Array): Promise<void>;
+  /** 打开可写文件流（truncate 创建/覆盖），用于流式导出。非 Tauri 环境抛错 */
+  openWritable(filePath: string): Promise<WritableFileHandle>;
   checkForUpdate(): Promise<UpdateCheckResult | null>;
   relaunch(): Promise<void>;
 }
@@ -50,6 +66,16 @@ class TauriPlatformAPI implements IPlatformAPI {
   async writeFile(filePath: string, data: Uint8Array): Promise<void> {
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     await writeFile(filePath, data);
+  }
+
+  async openWritable(filePath: string): Promise<WritableFileHandle> {
+    const { open, SeekMode } = await import('@tauri-apps/plugin-fs');
+    const file = await open(filePath, { write: true, create: true, truncate: true });
+    return {
+      write: (data) => file.write(data),
+      seek: (offset) => file.seek(offset, SeekMode.Start),
+      close: () => file.close(),
+    };
   }
 
   async checkForUpdate(): Promise<UpdateCheckResult | null> {
@@ -99,6 +125,10 @@ class NullPlatformAPI implements IPlatformAPI {
   async writeFile(): Promise<void> {
     // no-op in browser
   }
+  async openWritable(): Promise<WritableFileHandle> {
+    // 浏览器降级无法流式写盘，抛错让上层回退 downloadBlob
+    throw new Error('流式导出仅在桌面端可用');
+  }
   async checkForUpdate(): Promise<null> {
     return null;
   }
@@ -118,6 +148,9 @@ export const platformAPI: IPlatformAPI = {
   },
   writeFile(filePath: string, data: Uint8Array): Promise<void> {
     return getPlatformAPI().writeFile(filePath, data);
+  },
+  openWritable(filePath: string): Promise<WritableFileHandle> {
+    return getPlatformAPI().openWritable(filePath);
   },
   checkForUpdate(): Promise<UpdateCheckResult | null> {
     return getPlatformAPI().checkForUpdate();

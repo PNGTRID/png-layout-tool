@@ -3,12 +3,9 @@
  * Handles PSD magic header validation and ag-psd integration.
  */
 
-import { MAX_FILE_SIZE_MB } from '../shared/constants';
+import { MAX_PSD_SIZE_MB } from '../shared/constants';
 import type { UploadedImage } from '../shared/types';
 import { processLoadedImage } from './image-loader';
-
-/** Maximum PSD file size (MB) — PSDs require ~5x memory for parsing */
-const MAX_PSD_SIZE_MB = MAX_FILE_SIZE_MB * 0.5;
 
 /** Maximum recursion depth for nested layer groups */
 const MAX_LAYER_DEPTH = 10;
