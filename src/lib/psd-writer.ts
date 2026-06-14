@@ -17,7 +17,6 @@
 
 import { BinaryWriter } from './binary-writer';
 import { compressChannel } from './rle';
-import { rgbaToCmyka } from './cmyk';
 
 export interface CmykLayer {
   name: string;
@@ -209,6 +208,104 @@ function writeLayerRecord(w: BinaryWriter, layer: CmykLayer, chs: ChData[]): voi
   w.bytes(extraBytes);
 }
 
+/**
+ * 在 CMYK(inverted ink) 空间直接做 alpha-over 合成。
+ *
+ * 替代旧的 CMYK→RGBA→canvas drawImage→RGBA→CMYK 两次有损转换路径：每图层按
+ *   out_inv = src_inv·α + dst_inv·(1−α)
+ * 逐通道混合（inverted ink 空间下线性混合等价于 RGBA 空间的 canvas 合成）。
+ * K 通道与 CMY 同法 —— inverted ink 下 K 也是线性油墨量，边缘半透明过渡同样正确。
+ *
+ * 使用完整非预乘 alpha-over（与 canvas putImageData→drawImage 语义一致），必须考虑
+ * 目标已有 alpha：简化公式 src·α+dst·(1−α) 仅适用于不透明目标，会污染透明区域。
+ *   out_a   = src_a + dst_a·(1−src_a)
+ *   out_inv = (src_inv·src_a + dst_inv·dst_a·(1−src_a)) / out_a   (out_a > 0)
+ *
+ * 初始画布为全透明纯黑（K=100%），与旧 clearRect→getImageData(0,0,0,0)→rgbaToCmyka
+ * 的未覆盖像素行为一致：hasBackground 时作为不透明黑背景写出，否则 alpha=0 不显示。
+ *
+ * 不创建 canvas —— 解除 PSD composite 的 MAX_PREVIEW_PIXELS canvas 硬限制，并省掉
+ * 整张 RGBA 缓冲与两次颜色转换，峰值内存从 ~13 B/px 降至 5 B/px（仅 compCmyka 自身）。
+ */
+export function compositeCmykaLayers(
+  layers: CmykLayer[],
+  canvasW: number,
+  canvasH: number,
+): Uint8Array {
+  const rowBytes = canvasW * 5;
+  const comp = new Uint8Array(canvasW * canvasH * 5);
+
+  // 初始化为纯黑(K=100%)+透明：inverted CMYK = (255,255,255,0), alpha=0
+  if (canvasW > 0 && canvasH > 0) {
+    const rowPattern = new Uint8Array(rowBytes);
+    for (let px = 0; px < canvasW; px++) {
+      const o = px * 5;
+      rowPattern[o] = 255;
+      rowPattern[o + 1] = 255;
+      rowPattern[o + 2] = 255;
+      rowPattern[o + 3] = 0;
+      rowPattern[o + 4] = 0;
+    }
+    for (let py = 0; py < canvasH; py++) comp.set(rowPattern, py * rowBytes);
+  }
+
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li];
+    const lw = layer.width;
+    const lh = layer.height;
+    const src = layer.cmyka;
+    const left = layer.left;
+    const top = layer.top;
+
+    // 完全在画布外则跳过；否则裁剪到画布内有效区域
+    if (left >= canvasW || top >= canvasH || left + lw <= 0 || top + lh <= 0) continue;
+    const x0 = Math.max(0, -left);
+    const x1 = Math.min(lw, canvasW - left);
+    const y0 = Math.max(0, -top);
+    const y1 = Math.min(lh, canvasH - top);
+
+    for (let py = y0; py < y1; py++) {
+      const dy = top + py;
+      let srcIdx = (py * lw + x0) * 5;
+      let dstIdx = (dy * canvasW + left + x0) * 5;
+      for (let px = x0; px < x1; px++) {
+        const sa = src[srcIdx + 4];
+        if (sa === 255) {
+          // 源不透明：直接覆盖目标（out_a=1 → out_inv=src_inv）
+          comp[dstIdx]     = src[srcIdx];
+          comp[dstIdx + 1] = src[srcIdx + 1];
+          comp[dstIdx + 2] = src[srcIdx + 2];
+          comp[dstIdx + 3] = src[srcIdx + 3];
+          comp[dstIdx + 4] = 255;
+        } else if (sa !== 0) {
+          const da = comp[dstIdx + 4];
+          const saN = sa / 255;
+          const daN = da / 255;
+          const oaN = saN + daN * (1 - saN);
+          if (oaN > 0) {
+            const w1 = saN / oaN;
+            const w2 = (daN * (1 - saN)) / oaN;
+            let v = src[srcIdx]     * w1 + comp[dstIdx]     * w2;
+            comp[dstIdx]     = v > 255 ? 255 : Math.round(v);
+            v =                 src[srcIdx + 1] * w1 + comp[dstIdx + 1] * w2;
+            comp[dstIdx + 1] = v > 255 ? 255 : Math.round(v);
+            v =                 src[srcIdx + 2] * w1 + comp[dstIdx + 2] * w2;
+            comp[dstIdx + 2] = v > 255 ? 255 : Math.round(v);
+            v =                 src[srcIdx + 3] * w1 + comp[dstIdx + 3] * w2;
+            comp[dstIdx + 3] = v > 255 ? 255 : Math.round(v);
+            const outA = oaN * 255;
+            comp[dstIdx + 4] = outA >= 255 ? 255 : Math.round(outA);
+          }
+        }
+        srcIdx += 5;
+        dstIdx += 5;
+      }
+    }
+  }
+
+  return comp;
+}
+
 /** §5. Composite Image Data — flattened preview in CMYK */
 function writeCompositeImageData(
   w: BinaryWriter,
@@ -217,35 +314,8 @@ function writeCompositeImageData(
   canvasH: number,
   compositeHasAlpha: boolean
 ): void {
-  // Composite preview: render all layers onto a single canvas via CMYK→RGBA→CMYK round-trip
-  const compCanvas = document.createElement('canvas');
-  compCanvas.width = canvasW;
-  compCanvas.height = canvasH;
-  const compCtx = compCanvas.getContext('2d');
-  if (!compCtx) throw new Error('Failed to get 2d context for composite image');
-  compCtx.clearRect(0, 0, canvasW, canvasH);
-
-  for (const layer of layers) {
-    const rgba = cmykaToRgba(layer.cmyka, layer.width, layer.height);
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = layer.width;
-    tmpCanvas.height = layer.height;
-    const tmpCtx = tmpCanvas.getContext('2d');
-    if (!tmpCtx) continue;
-    tmpCtx.putImageData(new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, layer.width, layer.height), 0, 0);
-    compCtx.drawImage(tmpCanvas, layer.left, layer.top);
-
-    // Release temp canvas memory promptly
-    tmpCanvas.width = 0;
-    tmpCanvas.height = 0;
-  }
-
-  const compRgba = compCtx.getImageData(0, 0, canvasW, canvasH);
-  const compCmyka = rgbaToCmyka(compRgba.data, canvasW, canvasH);
-
-  // Release composite canvas
-  compCanvas.width = 0;
-  compCanvas.height = 0;
+  // Composite preview: 直接在 CMYK 空间合成所有图层（不经 canvas / RGBA 往返）
+  const compCmyka = compositeCmykaLayers(layers, canvasW, canvasH);
 
   w.u16(1); // Compression: RLE
 
@@ -265,7 +335,10 @@ function writeCompositeImageData(
 }
 
 /**
- * Convert CMYKA (inverted ink) back to RGBA for canvas rendering.
+ * Convert CMYKA (inverted ink) back to RGBA.
+ *
+ * 历史上用于 composite 渲染（CMYK→RGBA→canvas 合成）；composite 已改为直接 CMYK 空间
+ * 合成（见 compositeCmykaLayers），本函数保留作 CMYK↔RGBA 往返工具与单元测试。
  *
  * In PSD's inverted ink convention:
  *   C_inv = 255 × (1 - C),  K_inv = 255 × (1 - K)

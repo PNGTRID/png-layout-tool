@@ -27,6 +27,16 @@ export function setExportProgress(payload: ExportProgressPayload | null): void {
 }
 
 /**
+ * 注册 / 清除导出取消回调。App runExport 开始时注册 `() => controller.abort()`，
+ * 导出结束（正常或取消）时传 null 清除。overlay 的「取消导出」按钮点击时调用当前回调。
+ * 模块级变量 + 闭包读取：每次点击读到最新 handler，无需触发组件重渲染。
+ */
+let exportCancelHandler: (() => void) | null = null;
+export function setExportCancelHandler(handler: (() => void) | null): void {
+  exportCancelHandler = handler;
+}
+
+/**
  * 各导出格式在每个阶段于总进度（0-1）中所占的区间与中文标签。
  * - prepare:  导出启动 → 首次渲染前（含系统保存对话框等待），无细分，流动动画
  * - render:   带 current/total，精确推进（最耗时阶段）
@@ -125,6 +135,15 @@ export function ExportProgressOverlay() {
             {indeterminate ? '处理中…' : `${Math.round(percent)}%`}
           </span>
         </div>
+
+        {/* 取消按钮：root 为 pointer-events-none 不挡画布，按钮单独开启交互 */}
+        <button
+          type="button"
+          onClick={() => exportCancelHandler?.()}
+          className="pointer-events-auto self-end rounded-md border border-lt-border px-3 py-1 text-xs text-lt-sub transition-colors hover:bg-lt-hover hover:text-lt-text"
+        >
+          取消导出
+        </button>
       </div>
     </div>
   );

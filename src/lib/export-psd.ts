@@ -31,8 +31,13 @@ function hasSemiTransparentPixel(data: Uint8ClampedArray): boolean {
   return false;
 }
 
-export interface ExportAbortSignal {
-  aborted: boolean;
+/**
+ * 检查取消信号，已取消则抛错（消息含「取消」，便于 friendlyErrorMessage 识别）。
+ * 各导出路径在 render / strip / segment 循环顶部调用，实现中途取消 —— 抛错而非
+ * 静默 return，让上层编排器（exportSegmented / App runExport）能区分取消与正常完成。
+ */
+export function throwIfExportAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('导出已取消');
 }
 
 export async function exportPSD(
@@ -41,10 +46,12 @@ export async function exportPSD(
   params: LayoutParams,
   filePath: string,
   onProgress?: ExportProgressCallback,
-  abortSignal?: ExportAbortSignal
+  abortSignal?: AbortSignal
 ): Promise<void> {
-  // PSD 无流式实现 —— 单次全量编码（所有图层 CMYKA + composite round-trip 同时驻留）。
-  // 超大画布峰值内存会超出 WebView 限制而崩溃，前置拦截并引导改用 PNG/TIF（支持流式）。
+  // PSD 无流式实现 —— 单次全量编码（所有图层 CMYKA + composite 缓冲同时驻留）。
+  // composite 已改为直接 CMYK 空间合成（psd-writer.compositeCmykaLayers），不再经 canvas /
+  // RGBA 往返，故不受 MAX_PREVIEW_PIXELS 的 canvas 硬限制；但所有图层 CMYKA 仍同时驻留
+  // 内存，超大画布峰值仍可能超出 WebView 限制而崩溃，故保留安全阈值并引导改用 PNG/TIF。
   const totalPixels = layout.canvasWidth * layout.canvasHeight;
   if (totalPixels > MAX_PREVIEW_PIXELS) {
     throw new Error(
@@ -66,7 +73,7 @@ export async function exportPSD(
   // Phase 1: Render each cell to CMYK layer (sequential to avoid memory spikes)
   for (let idx = 0; idx < layout.cells.length; idx++) {
     // Cancellation checkpoint
-    if (abortSignal?.aborted) return;
+    throwIfExportAborted(abortSignal);
 
     onProgress?.('render', idx + 1, totalCells);
 
@@ -85,7 +92,7 @@ export async function exportPSD(
       const img = await loadImage(imgData.objectUrl);
 
       // Check abort after async operation
-      if (abortSignal?.aborted) return;
+      throwIfExportAborted(abortSignal);
 
       drawRotatedImage(
         ctx, img,
@@ -121,7 +128,7 @@ export async function exportPSD(
   }
 
   // Final abort check before expensive binary write
-  if (abortSignal?.aborted) return;
+  throwIfExportAborted(abortSignal);
 
   // Phase 2: Add background if needed
   let hasBackground = false;

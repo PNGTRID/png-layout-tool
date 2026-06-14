@@ -20,6 +20,7 @@ import { renderStrip, crc32Update } from './export-png';
 import { StreamBinaryWriter } from './stream-binary-writer';
 import type { WritableFileHandle } from '../shared/ipc';
 import type { ExportProgressCallback } from './export-psd';
+import { throwIfExportAborted } from './export-psd';
 
 /** PNG 8 字节签名 */
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -83,6 +84,7 @@ export async function exportPngStream(
   params: LayoutParams,
   handle: WritableFileHandle,
   onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   if (!('CompressionStream' in globalThis)) {
     throw new Error('当前环境不支持 PNG 流式导出（需 CompressionStream），请改用分块多文件导出');
@@ -136,6 +138,7 @@ export async function exportPngStream(
   const stripCanvas = document.createElement('canvas');
   try {
     for (let s = 0; s < numStrips; s++) {
+      throwIfExportAborted(abortSignal);
       onProgress?.('render', s + 1, numStrips);
       const stripY = s * STRIP_HEIGHT;
       const stripH = Math.min(STRIP_HEIGHT, height - stripY);

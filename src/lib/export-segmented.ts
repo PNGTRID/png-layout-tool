@@ -13,7 +13,7 @@ import type { LayoutResult, LayoutCell, UploadedImage, LayoutParams } from '../s
 import { EXPORT_SEGMENT_MAX_PX } from '../shared/constants';
 import { exportPNG, renderStrip, cellOverlapsStrip } from './export-png';
 import { exportTIF } from './export-tif';
-import { exportPSD, type ExportProgressCallback } from './export-psd';
+import { exportPSD, throwIfExportAborted, type ExportProgressCallback } from './export-psd';
 import { buildSegmentPaths, splitFilePath } from './path-utils';
 
 export type SegmentedExportFormat = 'PNG' | 'PSD' | 'TIF';
@@ -96,6 +96,7 @@ export async function exportSegmented(
   params: LayoutParams,
   basePath: string,
   onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<{ segmentCount: number; outputDir: string }> {
   const segYs = computeSegmentStartYs(layout.canvasHeight);
   const segCount = segYs.length;
@@ -110,6 +111,7 @@ export async function exportSegmented(
   const segPaths = buildSegmentPaths(basePath, segCount);
 
   for (let i = 0; i < segCount; i++) {
+    throwIfExportAborted(abortSignal); // 段间取消检查
     const segY = segYs[i];
     const segH = Math.min(EXPORT_SEGMENT_MAX_PX, layout.canvasHeight - segY);
     onProgress?.('render', i + 1, segCount); // 段级进度（第 i+1/segCount 段）
@@ -117,12 +119,12 @@ export async function exportSegmented(
     try {
       if (format === 'PSD') {
         const subLayout = sliceLayoutForSegment(layout, segY, segH);
-        await exportPSD(subLayout, images, params, segPaths[i]);
+        await exportPSD(subLayout, images, params, segPaths[i], undefined, abortSignal);
       } else {
         const exporter = format === 'PNG' ? exportPNG : exportTIF;
         const segCanvas = await renderSegment(layout, images, params.backgroundColor, segY, segH);
         try {
-          await exporter(segCanvas, segPaths[i], params.dpi);
+          await exporter(segCanvas, segPaths[i], params.dpi, undefined, abortSignal);
         } finally {
           // 释放段 canvas 显存（连续 N 段累积会触发崩溃）
           segCanvas.width = 0;
@@ -130,6 +132,7 @@ export async function exportSegmented(
         }
       }
     } catch (err) {
+      if (abortSignal?.aborted) throw err; // 用户取消：透传取消错误，不当段失败
       const reason = err instanceof Error ? err.message : String(err);
       throw new Error(`第 ${i + 1}/${segCount} 段导出失败（前 ${i} 段已保存）：${reason}`, { cause: err });
     }

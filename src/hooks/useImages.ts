@@ -4,7 +4,7 @@ import { MAX_FILE_SIZE_MB, MAX_PSD_SIZE_MB, MAX_QUANTITY_PER_IMAGE } from '../sh
 import { loadImageInfo } from '../lib/image-loader';
 import { loadPsdAsImages } from '../lib/psd-loader';
 import { loadTiffImage } from '../lib/tif-loader';
-import { clearImageCache } from '../lib/image-cache';
+import { clearImageCache, evictImage } from '../lib/image-cache';
 import { showToast } from '../components/Toast';
 import { useUndoRedo } from './useUndoRedo';
 
@@ -133,12 +133,16 @@ export function useImages(
   }, [onAction, setImages, resolveQuantity]);
 
   const removeImage = useCallback((id: string) => {
+    // Release this image's ObjectURL and evict it from the decode cache so the
+    // memory is reclaimed immediately (mirrors clearAll / unmount cleanup).
+    // Reads imagesRef (not images) so the callback stays referentially stable
+    // and downstream memoised components (ImageCard) don't re-render on every list change.
+    const img = imagesRef.current.find(i => i.id === id);
+    if (img) {
+      evictImage(img.objectUrl);
+      URL.revokeObjectURL(img.objectUrl);
+    }
     setImages(prev => prev.filter(i => i.id !== id));
-    onAction?.();
-  }, [onAction, setImages]);
-
-  const reorderImages = useCallback((newOrder: UploadedImage[]) => {
-    setImages(newOrder);
     onAction?.();
   }, [onAction, setImages]);
 
@@ -196,5 +200,5 @@ export function useImages(
     };
   }, []);
 
-  return { images, isProcessing, addFiles, removeImage, reorderImages, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo };
+  return { images, isProcessing, addFiles, removeImage, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo };
 }

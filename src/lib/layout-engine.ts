@@ -1,5 +1,5 @@
 import type { UploadedImage, LayoutParams, LayoutResult, LayoutCell } from '../shared/types';
-import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS, SMART_LAYOUT_LARGE_THRESHOLD } from '../shared/constants';
+import { MAX_CANVAS_HEIGHT, MAX_LAYOUT_ITEMS, SMART_LAYOUT_LARGE_THRESHOLD, OVERLAP_VERIFY_MAX_PASSES } from '../shared/constants';
 
 /** 将 cm 转换为像素（基于 DPI） */
 export function cmToPx(cm: number, dpi: number): number {
@@ -28,9 +28,22 @@ export function isDimensionSwap(rotation: RotationAngle): boolean {
   return rotation === 90 || rotation === 270;
 }
 
+/**
+ * 排版引擎实际读取的 UploadedImage 字段子集（单一真相源：与 getEffectiveDimensions
+ * 和 packOneStrategy 的字段访问保持一致）。
+ *
+ * 跨 Worker 边界传递时只携带这些纯标量字段，排除 dataUrl（大 base64）与 objectUrl
+ * （主线程专属 URL）等不可序列化或大体积字段。UploadedImage 是其结构超集，
+ * 可直接作为此类型传入 —— 结构类型兼容，无需调用方手动映射。
+ */
+export type LayoutInputImage = Pick<
+  UploadedImage,
+  'id' | 'width' | 'height' | 'trimX' | 'trimY' | 'trimWidth' | 'trimHeight' | 'quantity' | 'rotation' | 'targetWidthCm' | 'targetHeightCm'
+>;
+
 /** 获取图片的有效排版尺寸（考虑用户自定义 cm 尺寸和旋转） */
 function getEffectiveDimensions(
-  img: UploadedImage,
+  img: LayoutInputImage,
   dpi: number
 ): { w: number; h: number } {
   let baseW: number;
@@ -158,7 +171,7 @@ function placeAndSplit(
 // ─── Packing core ───────────────────────────────────────────────────
 
 interface PackItem {
-  img: UploadedImage;
+  img: LayoutInputImage;
   copyIndex: number;  // which copy of this image (0-based)
   w: number;
   h: number;
@@ -320,24 +333,33 @@ function compactCells(cells: LayoutCell[], gapPx: number): void {
 }
 
 /**
- * Safety verification: O(n²) overlap detection and correction.
+ * Safety verification: overlap detection and correction.
  * After compactCells, verifies that no two cells overlap in both axes.
  * If overlap is found, pushes the lower cell down by drawHeight + gapPx.
- * Loops until no more overlaps are found (capped at 10 iterations).
+ * Loops until no more overlaps are found (capped at OVERLAP_VERIFY_MAX_PASSES).
  * Acts as a guaranteed safety net against any edge-case overlap.
+ *
+ * Complexity: each pass sorts indices by current y (O(n log n)), then the inner
+ * loop breaks as soon as cell b sits below a's bottom edge — so amortised cost
+ * is ~O(n·k) (k = vertical neighbours) instead of the naïve O(n²). Indices are
+ * sorted rather than the array itself, so cell draw order (z-order) is preserved.
  */
 function verifyNoOverlap(cells: LayoutCell[], gapPx: number): void {
-  const maxPasses = 10;
-  for (let pass = 0; pass < maxPasses; pass++) {
+  for (let pass = 0; pass < OVERLAP_VERIFY_MAX_PASSES; pass++) {
+    // Sort indices by current y (recomputed each pass — cells move down between passes).
+    const order = cells.map((_, i) => i).sort((a, b) => cells[a].y - cells[b].y);
     let found = false;
-    for (let i = 0; i < cells.length; i++) {
-      for (let j = i + 1; j < cells.length; j++) {
-        const a = cells[i];
-        const b = cells[j];
+    for (let p = 0; p < order.length; p++) {
+      const a = cells[order[p]];
+      const aBottom = a.y + a.drawHeight;
+      for (let q = p + 1; q < order.length; q++) {
+        const b = cells[order[q]];
+        // Sorted by y so b.y >= a.y; once b's top reaches a's bottom the two can no
+        // longer overlap vertically, and neither can any later (larger-y) cell.
+        if (b.y >= aBottom) break;
         const hOverlap = a.x < b.x + b.drawWidth && a.x + a.drawWidth > b.x;
-        const vOverlap = a.y < b.y + b.drawHeight && a.y + a.drawHeight > b.y;
-        if (hOverlap && vOverlap) {
-          b.y = Math.max(b.y, a.y + a.drawHeight + gapPx);
+        if (hOverlap) {
+          b.y = Math.max(b.y, aBottom + gapPx);
           found = true;
         }
       }
@@ -366,7 +388,7 @@ export interface LayoutResultWithWarnings extends LayoutResult {
  * @param params - Layout parameters (gap, DPI, canvas size, auto-rotate, alignment)
  * @returns Layout result with canvas dimensions, placed cells, and any warnings
  */
-export function calculateLayout(images: UploadedImage[], params: LayoutParams): LayoutResultWithWarnings {
+export function calculateLayout(images: readonly LayoutInputImage[], params: LayoutParams): LayoutResultWithWarnings {
   if (images.length === 0) {
     return { canvasWidth: 0, canvasHeight: 0, cells: [], warnings: [] };
   }
@@ -377,7 +399,7 @@ export function calculateLayout(images: UploadedImage[], params: LayoutParams): 
   const gapPx = cmToPx(params.gap, params.dpi);
 
   // 1. Expand images by quantity — each copy gets its own index
-  const expanded: { img: UploadedImage; copyIndex: number }[] = [];
+  const expanded: { img: LayoutInputImage; copyIndex: number }[] = [];
   for (const img of images) {
     const count = img.quantity || 1;
     for (let n = 0; n < count; n++) {

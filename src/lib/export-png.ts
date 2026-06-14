@@ -7,6 +7,7 @@ import { getSrcCropRect } from './canvas-utils';
 import { drawCropMarks } from './crop-marks';
 import { downloadBlob } from './download';
 import type { ExportProgressCallback } from './export-psd';
+import { throwIfExportAborted } from './export-psd';
 
 /**
  * Check if a cell overlaps with a horizontal strip [stripY, stripY + stripH).
@@ -201,8 +202,10 @@ export async function exportPNG(
   canvas: HTMLCanvasElement,
   filePath: string,
   dpi: number,
-  onProgress?: ExportProgressCallback
+  onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
+  throwIfExportAborted(abortSignal);
   onProgress?.('compress', 0, 1);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((b) => {

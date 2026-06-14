@@ -8,7 +8,8 @@
  * 「中文图层名无损保留」这一核心不变量。
  */
 import { describe, it, expect } from 'vitest';
-import { buildLuniResource, cmykaToRgba } from '../psd-writer';
+import { buildLuniResource, cmykaToRgba, compositeCmykaLayers } from '../psd-writer';
+import type { CmykLayer } from '../psd-writer';
 import { rgbaToCmyka } from '../cmyk';
 
 // ─── 字节读取辅助（大端序）─────────────────────────────────────────
@@ -132,5 +133,89 @@ describe('cmykaToRgba — CMYK(inverted ink) ↔ RGBA 往返', () => {
     const rgba = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255]);
     const back = cmykaToRgba(rgbaToCmyka(rgba, 2, 1), 2, 1);
     expect(back.length).toBe(8);
+  });
+});
+
+// ─── compositeCmykaLayers：CMYK 空间直接 alpha-over 合成 ───────────
+
+/** Helper: 构造 CmykLayer（cmyka 为 inverted ink 平铺值） */
+function makeLayer(w: number, h: number, left: number, top: number, cmyka: number[]): CmykLayer {
+  return { name: 'L', cmyka: new Uint8Array(cmyka), width: w, height: h, left, top, hasTransparency: false };
+}
+
+describe('compositeCmykaLayers — CMYK(inverted ink) 空间直接 alpha-over 合成', () => {
+  it('输出尺寸 = canvasW × canvasH × 5', () => {
+    expect(compositeCmykaLayers([], 3, 2).length).toBe(30);
+  });
+
+  it('空图层列表：画布初始化为透明纯黑（K=100%, alpha=0）', () => {
+    const comp = compositeCmykaLayers([], 1, 1);
+    expect(comp[0]).toBe(255); // C_inv
+    expect(comp[1]).toBe(255);
+    expect(comp[2]).toBe(255);
+    expect(comp[3]).toBe(0);   // K_inv = 满黑
+    expect(comp[4]).toBe(0);   // alpha 透明
+  });
+
+  it('不透明源直接覆盖目标（快路径，out_a=255）', () => {
+    const layer = makeLayer(1, 1, 0, 0, [10, 20, 30, 40, 255]);
+    const comp = compositeCmykaLayers([layer], 1, 1);
+    expect(comp[0]).toBe(10);
+    expect(comp[1]).toBe(20);
+    expect(comp[2]).toBe(30);
+    expect(comp[3]).toBe(40);
+    expect(comp[4]).toBe(255);
+  });
+
+  it('全透明源（alpha=0）不改变目标', () => {
+    const layer = makeLayer(1, 1, 0, 0, [10, 20, 30, 40, 0]);
+    const comp = compositeCmykaLayers([layer], 1, 1);
+    expect(comp[0]).toBe(255); // 初始黑透明未变
+    expect(comp[3]).toBe(0);
+    expect(comp[4]).toBe(0);
+  });
+
+  it('半透明源叠加在透明背景：保留源 CMYK 与源 alpha', () => {
+    // 背景 alpha=0 → oaN=saN, w1=1, w2=0 → out_inv=src_inv
+    const layer = makeLayer(1, 1, 0, 0, [100, 110, 120, 130, 128]);
+    const comp = compositeCmykaLayers([layer], 1, 1);
+    expect(comp[0]).toBe(100);
+    expect(comp[1]).toBe(110);
+    expect(comp[2]).toBe(120);
+    expect(comp[3]).toBe(130);
+    expect(comp[4]).toBe(128);
+  });
+
+  it('半透明源 alpha-over 不透明目标（红 + 半透蓝 = 紫）', () => {
+    const red = makeLayer(1, 1, 0, 0, [255, 0, 0, 255, 255]);   // 纯红不透明
+    const blue = makeLayer(1, 1, 0, 0, [0, 0, 255, 255, 128]);  // 纯蓝 alpha=128
+    const comp = compositeCmykaLayers([red, blue], 1, 1);
+    // saN=128/255, daN=1, oaN=1, w1=128/255, w2=127/255
+    expect(comp[0]).toBe(127); // C_inv = 0·w1 + 255·w2 = 127
+    expect(comp[1]).toBe(0);   // M_inv = 0
+    expect(comp[2]).toBe(128); // Y_inv = 255·w1 = 128
+    expect(comp[3]).toBe(255); // K_inv = 255·(w1+w2) = 255
+    expect(comp[4]).toBe(255); // alpha
+  });
+
+  it('多图层按顺序合成（后图层覆盖在前）', () => {
+    const a = makeLayer(1, 1, 0, 0, [10, 20, 30, 40, 255]);
+    const b = makeLayer(1, 1, 0, 0, [50, 60, 70, 80, 255]); // 不透明，覆盖 a
+    const comp = compositeCmykaLayers([a, b], 1, 1);
+    expect(comp[0]).toBe(50);
+  });
+
+  it('图层超出画布边界被裁剪到有效区域', () => {
+    // 2×2 图层放在 (-1,-1)：仅图层 (1,1) 像素落入 1×1 画布
+    const layer = makeLayer(2, 2, -1, -1, [
+      0, 0, 0, 0, 255,    0, 0, 0, 0, 255,
+      0, 0, 0, 0, 255,   77, 88, 99, 11, 255,
+    ]);
+    const comp = compositeCmykaLayers([layer], 1, 1);
+    expect(comp[0]).toBe(77);
+    expect(comp[1]).toBe(88);
+    expect(comp[2]).toBe(99);
+    expect(comp[3]).toBe(11);
+    expect(comp[4]).toBe(255);
   });
 });

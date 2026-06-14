@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { BinaryWriter } from '../binary-writer';
+import { throwIfExportAborted } from '../export-psd';
 
 describe('PSD file header format', () => {
   it('writes 8BPS signature and version=1 correctly', () => {
@@ -93,5 +94,22 @@ describe('PSD binary structure integrity', () => {
     // Color mode data: 4 bytes (length=0)
     w.u32(0);
     expect(w.pos).toBe(30);
+  });
+});
+
+describe('throwIfExportAborted — 取消信号检查', () => {
+  it('无信号时不抛错', () => {
+    expect(() => throwIfExportAborted(undefined)).not.toThrow();
+  });
+
+  it('未取消的信号不抛错', () => {
+    const c = new AbortController();
+    expect(() => throwIfExportAborted(c.signal)).not.toThrow();
+  });
+
+  it('已取消的信号抛含「取消」的错误（供 friendlyErrorMessage 识别）', () => {
+    const c = new AbortController();
+    c.abort();
+    expect(() => throwIfExportAborted(c.signal)).toThrow('取消');
   });
 });

@@ -49,6 +49,14 @@ export const MAX_VALID_DPI = 2400;
 /** Maximum cached image entries (LRU eviction) */
 export const MAX_CACHE_SIZE = 200;
 
+// ─── TIFF loading ──────────────────────────────────────────────────
+/**
+ * Target sample point count for invalid-alpha detection in TIFFs (see tif-loader).
+ * Sampling ~100k points keeps the heuristic fast on large images while staying
+ * representative. Stride = ⌊pixelCount / target⌋.
+ */
+export const TIF_ALPHA_SAMPLE_TARGET = 100_000;
+
 // ─── Export pipeline ───────────────────────────────────────────────
 /** Maximum height (px) per rendering strip for large canvas export */
 export const STRIP_HEIGHT = 4096;
@@ -62,9 +70,35 @@ export const STRIP_HEIGHT = 4096;
  */
 export const EXPORT_SEGMENT_MAX_PX = 30000;
 
+// ─── CMYK conversion ───────────────────────────────────────────────
+/**
+ * GCR（Gray Component Replacement）因子：纯中性灰（c≈m≈y）转黑版 K 的比例。
+ * 1.0 = 灰成分全部转 K（暗调稳定，接近教科书 max-K）。
+ */
+export const CMYK_GCR_NEUTRAL = 1.0;
+
+/**
+ * GCR 因子：彩色像素的灰成分转 K 比例。低于中性值以保留彩色饱和度，
+ * 避免鲜艳色因过度黑版生成而发暗。
+ */
+export const CMYK_GCR_COLORFUL = 0.35;
+
+/**
+ * 总墨量上限（Total Area Coverage，C+M+Y+K，范围 0–4）。3.0 = 300%，
+ * 超出时四通道等比缩放，防止印刷堆墨过多糊版。
+ */
+export const CMYK_TAC_LIMIT = 3.0;
+
 // ─── Layout engine ─────────────────────────────────────────────────
 /** Maximum canvas height (px) — bounded to prevent runaway memory */
 export const MAX_CANVAS_HEIGHT = 100_000;
+
+/**
+ * Maximum passes for the post-pack overlap verification (verifyNoOverlap).
+ * Each pass fixes detected overlaps; 10 is far more than needed in practice
+ * and acts as a safety bound against pathological inputs.
+ */
+export const OVERLAP_VERIFY_MAX_PASSES = 10;
 
 /** Maximum number of layout items (images × quantity) — prevents O(n²) freeze */
 export const MAX_LAYOUT_ITEMS = 2000;

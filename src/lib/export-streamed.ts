@@ -28,6 +28,7 @@ export async function exportStreamed(
   params: LayoutParams,
   filePath: string,
   onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   // openWritable 在编码 try 之外：失败（如非桌面端抛"流式导出仅在桌面端可用"）时
   // 文件根本未创建，直接透传原始错误，避免误提示"请删除残留文件"。
@@ -35,14 +36,16 @@ export async function exportStreamed(
 
   try {
     if (format === 'TIF') {
-      await exportTifStream(layout, images, params, handle, onProgress);
+      await exportTifStream(layout, images, params, handle, onProgress, abortSignal);
     } else if (format === 'PNG') {
-      await exportPngStream(layout, images, params, handle, onProgress);
+      await exportPngStream(layout, images, params, handle, onProgress, abortSignal);
     } else {
       // PSD 流式为阶段 3 roadmap
       throw new Error(`${format} 流式导出暂不支持，请降低画布高度或改用 TIF`);
     }
   } catch (err) {
+    // 用户取消：透传取消错误，不当作失败（仍走 finally close handle）
+    if (abortSignal?.aborted) throw err;
     // 编码失败：platformAPI 无删除能力，磁盘已残留不完整文件 —— 提示用户手动清理
     console.error('[export-streamed] 流式导出失败，磁盘可能残留不完整文件', filePath, err);
     throw new Error(`流式导出失败，已写入部分可能不完整，请手动删除该文件后重试：${filePath}`, { cause: err });

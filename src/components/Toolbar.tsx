@@ -35,10 +35,10 @@ function ExportSplitButton({ hasImages, onExportPNG, onExportPSD, onExportTIF }:
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const options: { key: ExportFormatKey; label: string; Icon: typeof FileImage; desc: string; handler: () => void }[] = [
-    { key: 'PNG', label: 'PNG', Icon: FileImage, desc: '位图', handler: onExportPNG },
-    { key: 'PSD', label: 'PSD', Icon: Layers, desc: '含图层', handler: onExportPSD },
-    { key: 'TIF', label: 'TIF', Icon: FileType, desc: '透明位图', handler: onExportTIF },
+  const options: { key: ExportFormatKey; label: string; Icon: typeof FileImage; desc: string; hint: string; handler: () => void }[] = [
+    { key: 'PNG', label: 'PNG', Icon: FileImage, desc: '位图', hint: '导出为 PNG 位图', handler: onExportPNG },
+    { key: 'PSD', label: 'PSD', Icon: Layers, desc: 'CMYK·图层', hint: '快速 CMYK 近似（无 ICC 色彩管理），专业印刷建议在 Photoshop 用 SWOP/FOGRA39 重转', handler: onExportPSD },
+    { key: 'TIF', label: 'TIF', Icon: FileType, desc: '透明位图', hint: '导出为 TIFF 透明位图', handler: onExportTIF },
   ];
   const current = options.find(o => o.key === format) ?? options[0];
 
@@ -64,7 +64,7 @@ function ExportSplitButton({ hasImages, onExportPNG, onExportPSD, onExportTIF }:
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-lt-sub transition-all
                      hover:bg-lt-hover hover:text-lt-text active:scale-[0.97]
                      disabled:cursor-not-allowed disabled:opacity-40"
-          title={`导出为 ${current.label}`}
+          title={current.hint}
         >
           <current.Icon className="h-3.5 w-3.5" />
           {current.label}
@@ -92,6 +92,7 @@ function ExportSplitButton({ hasImages, onExportPNG, onExportPSD, onExportTIF }:
               <button
                 key={opt.key}
                 onClick={() => { setFormat(opt.key); setMenuOpen(false); }}
+                title={opt.hint}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-lt-sub transition-colors
                            hover:bg-lt-hover hover:text-lt-text"
               >

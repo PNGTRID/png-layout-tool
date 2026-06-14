@@ -8,6 +8,7 @@
  */
 import UTIF from 'utif';
 import type { ExportProgressCallback } from './export-psd';
+import { throwIfExportAborted } from './export-psd';
 import { platformAPI } from '../shared/ipc';
 import { downloadBlob } from './download';
 
@@ -20,7 +21,9 @@ export async function exportTIF(
   filePath: string,
   dpi: number,
   onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
+  throwIfExportAborted(abortSignal);
   onProgress?.('compress', 0, 1);
 
   const ctx = canvas.getContext('2d');

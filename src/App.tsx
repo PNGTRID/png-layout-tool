@@ -1,12 +1,12 @@
 import { useCallback, useReducer, useRef, useState, useEffect } from 'react';
-import { Settings, ImageIcon } from 'lucide-react';
+import { Settings, ImageIcon, Loader2 } from 'lucide-react';
 import { useImages } from './hooks/useImages';
 import { useLayout } from './hooks/useLayout';
 import { useDragDrop } from './hooks/useDragDrop';
 import type { ExportProgressCallback } from './lib/export-psd';
 import { exportSegmented, computeSegmentStartYs, needsVerticalSegmenting } from './lib/export-segmented';
 import { exportStreamed } from './lib/export-streamed';
-import { clearImageCache, evictImage } from './lib/image-cache';
+import { clearImageCache } from './lib/image-cache';
 import { parseQuantityFromName } from './lib/quantity-parser';
 import { Toolbar } from './components/Toolbar';
 import { ControlPanel } from './components/ControlPanel';
@@ -14,7 +14,7 @@ import { UploadArea } from './components/UploadArea';
 import { ImageList } from './components/ImageList';
 import { LayoutCanvas } from './components/LayoutCanvas';
 import { ToastContainer, showToast } from './components/Toast';
-import { ExportProgressOverlay, setExportProgress, type ExportFormat } from './components/ExportProgressOverlay';
+import { ExportProgressOverlay, setExportProgress, setExportCancelHandler, type ExportFormat } from './components/ExportProgressOverlay';
 import { UpdateDialog } from './components/UpdateDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { useAppUpdater } from './hooks/useAppUpdater';
@@ -61,7 +61,7 @@ function App() {
 
   // Images hook — onAction pushes to unified action log; resolveQuantity auto-sets copies from filenames
   const { images, isProcessing, addFiles, removeImage, clearAll, updateQuantity, batchUpdateQuantity, updateTargetSize, rotateImage, totalQuantity, undoRedo } = useImages(recordImageAction, { resolveQuantity });
-  const { params, layout, warnings, updateParam, relayout, updatePosition, beginPositionEdit, undoPosition, redoPosition } = useLayout(images);
+  const { params, layout, warnings, isComputing, updateParam, relayout, updatePosition, beginPositionEdit, undoPosition, redoPosition } = useLayout(images);
   const { isDragging } = useDragDrop({ onFilesDropped: addFiles });
   const updater = useAppUpdater();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -178,6 +178,9 @@ function App() {
     if (images.length === 0 || layout.cells.length === 0) return;
     exportFormatRef.current = format;
     setIsExporting(true);
+    const controller = new AbortController();
+    setExportCancelHandler(() => controller.abort());
+    let mayHavePartialFile = false; // 流式 / 多段导出取消时磁盘可能残留不完整文件
     setExportProgress({ format, phase: 'prepare', current: 0, total: 0 });
     const t0 = performance.now();
     try {
@@ -191,7 +194,8 @@ function App() {
       if (needsVerticalSegmenting(layout.canvasHeight) &&
           (format === 'TIF' || (format === 'PNG' && 'CompressionStream' in window))) {
         showToast('info', '画布过高，采用流式导出为单个文件，请稍候');
-        await exportStreamed(format, layout, images, params, result, onExportProgress);
+        mayHavePartialFile = true;
+        await exportStreamed(format, layout, images, params, result, onExportProgress, controller.signal);
         const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
         showToast('success', `${format} 已导出: ${fileName} (${elapsed}s)`);
         return;
@@ -199,9 +203,10 @@ function App() {
 
       const segCount = computeSegmentStartYs(layout.canvasHeight).length;
       if (segCount > 1) {
+        mayHavePartialFile = true;
         showToast('info', `画布过高，将拆分为 ${segCount} 个文件依次导出`);
       }
-      const { segmentCount, outputDir } = await exportSegmented(format, layout, images, params, result, onExportProgress);
+      const { segmentCount, outputDir } = await exportSegmented(format, layout, images, params, result, onExportProgress, controller.signal);
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       if (segmentCount > 1) {
         showToast('success', `${format} 已导出 ${segmentCount} 个文件到 ${outputDir || '所选目录'} (${elapsed}s)`);
@@ -209,9 +214,17 @@ function App() {
         showToast('success', `${format} 已导出: ${fileName} (${elapsed}s)`);
       }
     } catch (err) {
-      console.error(`[export] ${format} failed:`, err);
-      showToast('error', friendlyErrorMessage(err, `导出 ${format}`));
+      if (controller.signal.aborted) {
+        // 用户取消：流式 / 多段已写入部分文件（platformAPI 无删除能力，需手动清理）
+        showToast('info', mayHavePartialFile
+          ? '导出已取消，已写入的文件可能不完整，请手动检查并删除'
+          : '导出已取消');
+      } else {
+        console.error(`[export] ${format} failed:`, err);
+        showToast('error', friendlyErrorMessage(err, `导出 ${format}`));
+      }
     } finally {
+      setExportCancelHandler(null);
       setIsExporting(false);
       setExportProgress(null);
     }
@@ -231,16 +244,6 @@ function App() {
     () => runExport('TIF', 'layout.tif', [{ name: 'TIFF 图片', extensions: ['tif', 'tiff'] }]),
     [runExport],
   );
-
-  // Wrap removeImage to also evict from image cache
-  const handleRemoveImage = useCallback((id: string) => {
-    const img = images.find(i => i.id === id);
-    if (img) {
-      evictImage(img.objectUrl);
-      URL.revokeObjectURL(img.objectUrl);
-    }
-    removeImage(id);
-  }, [images, removeImage]);
 
   // Wrap clearAll to also clear caches
   const handleClearAll = useCallback(() => {
@@ -353,6 +356,12 @@ function App() {
 
         {/* Center column — canvas preview */}
         <main className="relative flex flex-1 min-w-0 bg-lt-bg overflow-hidden">
+          {hasImages && isComputing && (
+            <div className="pointer-events-none absolute right-6 top-6 z-10 flex items-center gap-2 rounded-full border border-lt-border bg-white/95 px-3 py-1.5 text-xs font-medium text-lt-text shadow-lg">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-500" />
+              排版计算中
+            </div>
+          )}
           <div className="flex h-full w-full flex-col p-4">
             {hasImages ? (
               <LayoutCanvas
@@ -397,7 +406,7 @@ function App() {
           <div className="flex-1 overflow-y-auto p-4">
             <ImageList
               images={images}
-              onRemove={handleRemoveImage}
+              onRemove={removeImage}
               onUpdateQuantity={updateQuantity}
               onBatchUpdateQuantity={batchUpdateQuantity}
               onUpdateTargetSize={updateTargetSize}

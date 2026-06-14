@@ -7,7 +7,7 @@
  * Full resolution and transparency are preserved — only the decode path differs from PNG.
  */
 import UTIF from 'utif';
-import { MAX_IMAGE_DIMENSION } from '../shared/constants';
+import { MAX_IMAGE_DIMENSION, TIF_ALPHA_SAMPLE_TARGET } from '../shared/constants';
 import type { UploadedImage } from '../shared/types';
 import { processLoadedImage } from './image-loader';
 
@@ -26,8 +26,8 @@ import { processLoadedImage } from './image-loader';
  * @param pixelCount 像素总数
  */
 export function flattenInvalidAlpha(data: Uint8ClampedArray, pixelCount: number): void {
-  // 均匀采样约 10 万点用于判定（大图全扫过慢）
-  const stride = Math.max(1, Math.floor(pixelCount / 100_000));
+  // 均匀采样约 TIF_ALPHA_SAMPLE_TARGET 点用于判定（大图全扫过慢）
+  const stride = Math.max(1, Math.floor(pixelCount / TIF_ALPHA_SAMPLE_TARGET));
   let transparentPixels = 0;
   for (let i = 0; i < pixelCount; i += stride) {
     if (data[i * 4 + 3] === 0) transparentPixels++;

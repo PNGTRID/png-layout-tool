@@ -15,6 +15,7 @@ import { renderStrip } from './export-png';
 import { StreamBinaryWriter } from './stream-binary-writer';
 import type { WritableFileHandle } from '../shared/ipc';
 import type { ExportProgressCallback } from './export-psd';
+import { throwIfExportAborted } from './export-psd';
 
 // IFD 字段类型码（TIFF 6.0 spec）
 const IFD_TYPE_SHORT = 3;
@@ -64,6 +65,7 @@ export async function exportTifStream(
   params: LayoutParams,
   handle: WritableFileHandle,
   onProgress?: ExportProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   const { canvasWidth: width, canvasHeight: height } = layout;
   const dpi = params.dpi;
@@ -83,6 +85,7 @@ export async function exportTifStream(
   const stripCanvas = document.createElement('canvas');
 
   for (let s = 0; s < numStrips; s++) {
+    throwIfExportAborted(abortSignal);
     onProgress?.('render', s + 1, numStrips);
     const stripY = s * STRIP_HEIGHT;
     const stripH = Math.min(STRIP_HEIGHT, height - stripY);

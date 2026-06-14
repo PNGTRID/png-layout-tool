@@ -3,14 +3,19 @@
  */
 
 export function rleCompressScanline(data: Uint8Array): Uint8Array {
-  const out: number[] = [];
+  // PackBits 最坏情况是全 literal：每个 run ≤128 输入字节编码为 1 header + N data，
+  // 故输出上界 = 输入长度 + run 数 ⌈n/128⌉。预分配后用 subarray 截断实际长度，
+  // 避免原 number[] 逐字节 push 的装箱/扩容开销（binary-writer 同思路）。
+  const maxOut = data.length + Math.ceil(data.length / 128);
+  const out = new Uint8Array(maxOut);
+  let pos = 0;
   let i = 0;
   while (i < data.length) {
     let runLen = 1;
     while (i + runLen < data.length && data[i + runLen] === data[i] && runLen < 128) runLen++;
     if (runLen >= 2) {
-      out.push(1 - runLen); // repeat: -(count-1)
-      out.push(data[i]);
+      out[pos++] = 1 - runLen; // repeat: -(count-1)
+      out[pos++] = data[i];
       i += runLen;
     } else {
       const start = i;
@@ -20,12 +25,12 @@ export function rleCompressScanline(data: Uint8Array): Uint8Array {
       }
       const count = i - start;
       if (count > 0) {
-        out.push(count - 1);
-        for (let j = start; j < start + count; j++) out.push(data[j]);
+        out[pos++] = count - 1;
+        for (let j = start; j < start + count; j++) out[pos++] = data[j];
       }
     }
   }
-  return new Uint8Array(out);
+  return out.subarray(0, pos);
 }
 
 /** Extract one channel from interleaved pixel data and RLE-compress it */
