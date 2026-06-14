@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/feat/json-schema-generator/core/tauri-config-schema/schema.json",
   "productName": "PNG Layout Tool",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "identifier": "com.pnglayout.tool",
   "build": {
     "beforeDevCommand": "npm run dev",

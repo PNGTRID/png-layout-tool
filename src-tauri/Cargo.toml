@@ -1,6 +1,6 @@
 [package]
 name = "png-layout-tool"
-version = "1.4.0"
+version = "1.5.0"
 description = "PNG 透明图片自动排版工具"
 edition = "2021"
 
